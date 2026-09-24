@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The library is the one file next to this project. netstandard2.0 and C# 7.3
+    are the floor the client promises, so Unity and .NET Framework 4.6.1+ can
+    vendor TraceClient.cs unchanged; building it here keeps that promise honest.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>StephensonSoftware.Trace</AssemblyName>
+    <RootNamespace>StephensonSoftware.Trace</RootNamespace>
+    <Version>0.1.0</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TraceClient.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Modern .NET, where most programs run.
+          - os: ubuntu-latest
+            net-framework: false
+          # .NET Framework 4.8 too: the closest CI gets to the runtimes Unity
+          # and older desktop programs vendor the netstandard2.0 file into.
+          - os: windows-latest
+            net-framework: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and test
+        shell: bash
+        run: dotnet test -c Release -p:IncludeNetFramework=${{ matrix.net-framework }}
