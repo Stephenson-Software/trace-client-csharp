@@ -308,6 +308,94 @@ namespace StephensonSoftware.Trace.Tests
             }
         }
 
+        [Theory]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Json_OmitsAnInfiniteValueLikeNaN(double value)
+        {
+            // Infinity is not JSON either; the report still goes, without a value.
+            Assert.Null(TraceClient.Json("App", "n", value, null, out string json));
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\"}", json);
+        }
+
+        [Fact]
+        public void Json_WritesWholeAndNegativeValuesInTheirShortestForm()
+        {
+            TraceClient.Json("App", "n", 42.0, null, out string whole);
+            TraceClient.Json("App", "n", -0.5, null, out string negative);
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":42}", whole);
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":-0.5}", negative);
+        }
+
+        [Fact]
+        public void Json_OmitsTheTagsObjectWhenNoTagSurvives()
+        {
+            var onlyBadTags = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("nullValue", null),
+                new KeyValuePair<string, string>("", "emptyKey"),
+            };
+
+            TraceClient.Json("App", "n", null, new Dictionary<string, string>(), out string empty);
+            TraceClient.Json("App", "n", null, onlyBadTags, out string skipped);
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\"}", empty);
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\"}", skipped);
+        }
+
+        [Fact]
+        public void Json_RejectsAnApplicationLongerThanTheLimitButNotOneAtIt()
+        {
+            string longest = new string('a', TraceClient.MaxLength);
+            string tooLong = new string('a', TraceClient.MaxLength + 1);
+
+            string problem = TraceClient.Json(tooLong, "n", null, null, out string rejected);
+
+            Assert.Equal("application longer than " + TraceClient.MaxLength + " characters", problem);
+            Assert.Null(rejected);
+            Assert.Null(TraceClient.Json(longest, "n", null, null, out string accepted));
+            Assert.Contains(longest, accepted);
+        }
+
+        [Fact]
+        public void Json_RejectsATagKeyLongerThanTheLimitAndNamesOnlyItsStart()
+        {
+            // The key is cut to 32 characters in the reason, so a runaway key
+            // cannot turn one log line into 255 characters of it.
+            string tooLongKey = new string('k', TraceClient.MaxLength + 1);
+
+            string problem = TraceClient.Json("App", "n", null,
+                new Dictionary<string, string> { { tooLongKey, "v" } }, out string body);
+
+            Assert.Equal("tag " + new string('k', 32) + " longer than " + TraceClient.MaxLength + " characters", problem);
+            Assert.Null(body);
+        }
+
+        [Fact]
+        public void Quote_EscapesCarriageReturnAndEveryOtherControlCharacter()
+        {
+            Assert.Equal("\"a\\rb\"", TraceClient.Quote("a\rb"));
+            Assert.Equal("\"\\u0000\\u001f\"", TraceClient.Quote("\u0000\u001f"));
+            // Space and everything above it, non-ASCII included, is written as is.
+            Assert.Equal("\" \u00e9/\u00fc\"", TraceClient.Quote(" \u00e9/\u00fc"));
+        }
+
+        [Fact]
+        public void EnvironmentDisables_IsFalseWhenTheEnvironmentCannotBeRead()
+        {
+            // A sandbox that forbids reading the environment must not stop the
+            // program from starting, nor silently decide for it: its own setting rules.
+            TraceClient.EnvironmentSource = name => throw new System.Security.SecurityException("sandboxed");
+
+            Assert.False(TraceClient.EnvironmentDisables());
+            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            Assert.True(client.IsEnabled);
+            Assert.Null(client.DisabledReason);
+            client.Close();
+        }
+
         [Fact]
         public void Report_DropsWhatTheServerWouldRejectForItsSize()
         {
