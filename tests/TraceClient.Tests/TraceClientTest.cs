@@ -41,7 +41,7 @@ namespace StephensonSoftware.Trace.Tests
         public void Report_PostsTheEventToTheMetricsEndpointWithTheKey()
         {
             // Arrange
-            var client = new TraceClient(_server.BaseUrl + "/", "MyGame", key: "k-123");
+            var client = new TraceClient(_server.BaseUrl + "/", "MyGame", "1.2.3", key: "k-123");
 
             // Act
             client.Report("startup");
@@ -53,14 +53,14 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Equal("/api/metrics", request.Path); // a trailing slash on the base URL must not double up
             Assert.Equal("Bearer k-123", request.Authorization);
             Assert.StartsWith("application/json", request.ContentType);
-            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\"}", request.Body);
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"1.2.3\"}}", request.Body);
             client.Close();
         }
 
         [Fact]
         public void Report_CarriesValueAndTagsWhenGiven()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
             var tags = new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("command", "home"),
@@ -72,7 +72,7 @@ namespace StephensonSoftware.Trace.Tests
             Assert.True(_server.WaitFor(1, TimeSpan.FromSeconds(5)));
             Assert.Equal(
                 "{\"application\":\"MyGame\",\"name\":\"command\",\"value\":2.5,"
-                + "\"tags\":{\"command\":\"home\",\"world\":\"the \\\"end\\\"\"}}",
+                + "\"tags\":{\"command\":\"home\",\"world\":\"the \\\"end\\\"\",\"version\":\"1.2.3\"}}",
                 _server.Received.Single().Body);
             client.Close();
         }
@@ -80,7 +80,7 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void UserAgent_NamesTheClientVersion()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             client.Report("startup");
             client.Close();
@@ -96,7 +96,7 @@ namespace StephensonSoftware.Trace.Tests
             var release = new ManualResetEventSlim(false);
             using (var slow = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(10))))
             {
-                var client = new TraceClient(slow.BaseUrl, "MyGame", key: "k");
+                var client = new TraceClient(slow.BaseUrl, "MyGame", "1.2.3", key: "k");
 
                 var watch = Stopwatch.StartNew();
                 client.Report("startup");
@@ -114,7 +114,7 @@ namespace StephensonSoftware.Trace.Tests
         {
             int deadPort = StubServer.FreePort();
             var log = new ConcurrentQueue<string>();
-            var client = new TraceClient("http://127.0.0.1:" + deadPort, "MyGame", key: "k", log: log.Enqueue);
+            var client = new TraceClient("http://127.0.0.1:" + deadPort, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
 
             client.Report("startup"); // must not throw
             client.Close();           // waits for the in-flight attempt to fail
@@ -128,7 +128,7 @@ namespace StephensonSoftware.Trace.Tests
             using (var rejecting = new StubServer(status: () => 401))
             {
                 var log = new ConcurrentQueue<string>();
-                var client = new TraceClient(rejecting.BaseUrl, "MyGame", key: "revoked", log: log.Enqueue);
+                var client = new TraceClient(rejecting.BaseUrl, "MyGame", "1.2.3", key: "revoked", log: log.Enqueue);
 
                 client.Report("startup");
                 client.Close();
@@ -141,7 +141,7 @@ namespace StephensonSoftware.Trace.Tests
         public void Report_NeverThrowsEvenWhenTheLoggerDoes()
         {
             int deadPort = StubServer.FreePort();
-            var client = new TraceClient("http://127.0.0.1:" + deadPort, "MyGame", key: "k",
+            var client = new TraceClient("http://127.0.0.1:" + deadPort, "MyGame", "1.2.3", key: "k",
                                          log: m => throw new InvalidOperationException("bad logger"));
 
             client.Report("startup");
@@ -154,9 +154,9 @@ namespace StephensonSoftware.Trace.Tests
         {
             var clients = new[]
             {
-                new TraceClient(_server.BaseUrl, "MyGame", key: "k", enabled: false),
-                new TraceClient(_server.BaseUrl, "MyGame"),
-                new TraceClient(_server.BaseUrl, "MyGame", key: "  "),
+                new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", enabled: false),
+                new TraceClient(_server.BaseUrl, "MyGame", "1.2.3"),
+                new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "  "),
                 TraceClient.Disabled(),
             };
 
@@ -174,7 +174,7 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void DisabledReason_IsNullWhenTheClientReports()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             Assert.True(client.IsEnabled);
             Assert.Null(client.DisabledReason);
@@ -184,9 +184,9 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void DisabledReason_NamesTheConfigFlagOrTheMissingKey()
         {
-            Assert.Equal("config", new TraceClient(_server.BaseUrl, "MyGame", key: "k", enabled: false).DisabledReason);
-            Assert.Equal("config", new TraceClient(_server.BaseUrl, "MyGame", enabled: false).DisabledReason);
-            Assert.Equal("no key", new TraceClient(_server.BaseUrl, "MyGame").DisabledReason);
+            Assert.Equal("config", new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", enabled: false).DisabledReason);
+            Assert.Equal("config", new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", enabled: false).DisabledReason);
+            Assert.Equal("no key", new TraceClient(_server.BaseUrl, "MyGame", "1.2.3").DisabledReason);
             Assert.Equal("config", TraceClient.Disabled().DisabledReason);
         }
 
@@ -201,7 +201,7 @@ namespace StephensonSoftware.Trace.Tests
         {
             _environment[TraceClient.EnvUsageReporting] = value;
 
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
             client.Report("startup");
             client.Close();
 
@@ -220,7 +220,7 @@ namespace StephensonSoftware.Trace.Tests
         {
             _environment[TraceClient.EnvDoNotTrack] = value;
 
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             Assert.False(client.IsEnabled);
             Assert.Equal("environment", client.DisabledReason);
@@ -237,7 +237,7 @@ namespace StephensonSoftware.Trace.Tests
         {
             _environment[variable] = value;
 
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             Assert.True(client.IsEnabled);
             client.Close();
@@ -248,15 +248,15 @@ namespace StephensonSoftware.Trace.Tests
         {
             _environment[TraceClient.EnvDoNotTrack] = "1";
 
-            Assert.Equal("environment", new TraceClient(_server.BaseUrl, "MyGame", enabled: false).DisabledReason);
-            Assert.Equal("environment", new TraceClient(_server.BaseUrl, "MyGame").DisabledReason);
+            Assert.Equal("environment", new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", enabled: false).DisabledReason);
+            Assert.Equal("environment", new TraceClient(_server.BaseUrl, "MyGame", "1.2.3").DisabledReason);
             Assert.True(TraceClient.EnvironmentDisables());
         }
 
         [Fact]
         public void Report_IgnoresABlankName()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             client.Report(null);
             client.Report("   ");
@@ -268,10 +268,78 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void Constructor_RejectsAMissingBaseUrlOrApplication()
         {
-            Assert.Throws<ArgumentException>(() => new TraceClient(null, "MyGame"));
-            Assert.Throws<ArgumentException>(() => new TraceClient(" ", "MyGame"));
-            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", null));
-            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", ""));
+            Assert.Throws<ArgumentException>(() => new TraceClient(null, "MyGame", "1.2.3"));
+            Assert.Throws<ArgumentException>(() => new TraceClient(" ", "MyGame", "1.2.3"));
+            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", null, "1.2.3"));
+            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "", "1.2.3"));
+        }
+
+        [Fact]
+        public void Constructor_RejectsAMissingOrOverlongVersion()
+        {
+            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "MyGame", null));
+            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "MyGame", ""));
+            Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "MyGame", "  "));
+            Assert.Throws<ArgumentException>(
+                () => new TraceClient("http://x", "MyGame", new string('9', TraceClient.MaxLength + 1)));
+            // Trimmed before measuring: surrounding whitespace does not count.
+            new TraceClient("http://x", "MyGame", " " + new string('9', TraceClient.MaxLength) + " ").Close();
+        }
+
+        [Fact]
+        public void Report_TagsACommandWithTheProgramVersionTrimmed()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", " 2.0.0-SNAPSHOT ", key: "k");
+
+            client.Report("command", tags: new Dictionary<string, string> { { "name", "home" } });
+
+            Assert.True(_server.WaitFor(1, TimeSpan.FromSeconds(5)));
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"command\","
+                         + "\"tags\":{\"name\":\"home\",\"version\":\"2.0.0-SNAPSHOT\"}}",
+                         _server.Received.Single().Body);
+            client.Close();
+        }
+
+        [Fact]
+        public void Report_AnEventsOwnVersionTagWinsOverTheProgramVersion()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            var tags = new Dictionary<string, string> { { "version", "9.9.9" } };
+
+            client.Report("startup", tags: tags);
+
+            Assert.True(_server.WaitFor(1, TimeSpan.FromSeconds(5)));
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"9.9.9\"}}",
+                         _server.Received.Single().Body);
+            Assert.Equal(new Dictionary<string, string> { { "version", "9.9.9" } }, tags); // the caller's dictionary is not modified
+            client.Close();
+        }
+
+        [Fact]
+        public void Report_NeverModifiesTheCallersDictionary()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            var tags = new Dictionary<string, string> { { "name", "home" } };
+
+            client.Report("command", tags: tags);
+            client.Close();
+
+            Assert.Equal(new Dictionary<string, string> { { "name", "home" } }, tags);
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"command\",\"tags\":{\"name\":\"home\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void WithVersion_AddsTheVersionToACopyOnly()
+        {
+            var tags = new Dictionary<string, string> { { "name", "home" } };
+
+            List<KeyValuePair<string, string>> merged = TraceClient.WithVersion(tags, "1.2.3");
+
+            Assert.Equal(new Dictionary<string, string> { { "name", "home" } }, tags);
+            Assert.Contains(new KeyValuePair<string, string>("version", "1.2.3"), merged);
+            Assert.Equal(new[] { new KeyValuePair<string, string>("version", "1.2.3") },
+                         TraceClient.WithVersion(null, "1.2.3"));
         }
 
         [Fact]
@@ -390,7 +458,7 @@ namespace StephensonSoftware.Trace.Tests
             TraceClient.EnvironmentSource = name => throw new System.Security.SecurityException("sandboxed");
 
             Assert.False(TraceClient.EnvironmentDisables());
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
             Assert.True(client.IsEnabled);
             Assert.Null(client.DisabledReason);
             client.Close();
@@ -400,14 +468,16 @@ namespace StephensonSoftware.Trace.Tests
         public void Report_DropsWhatTheServerWouldRejectForItsSize()
         {
             var log = new ConcurrentQueue<string>();
-            var client = new TraceClient(_server.BaseUrl, "MyGame", key: "k", log: log.Enqueue);
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
             var tooMany = Enumerable.Range(0, TraceClient.MaxTags + 1)
                 .Select(i => new KeyValuePair<string, string>("t" + i, "v")).ToList();
-            var exactlyTheLimit = tooMany.Take(TraceClient.MaxTags).ToList();
+            // The program version is one of the tags, so the event itself may carry one fewer.
+            var exactlyTheLimit = tooMany.Take(TraceClient.MaxTags - 1).ToList();
             string longest = new string('v', TraceClient.MaxLength);
             string tooLong = new string('v', TraceClient.MaxLength + 1);
 
             client.Report("too-many-tags", tags: tooMany);
+            client.Report("too-many-with-version", tags: tooMany.Take(TraceClient.MaxTags).ToList());
             client.Report("tag-value-too-long", tags: new Dictionary<string, string> { { "k", tooLong } });
             client.Report(tooLong);
             client.Report("at-the-limit", tags: exactlyTheLimit);
@@ -416,7 +486,7 @@ namespace StephensonSoftware.Trace.Tests
 
             Assert.Equal(new[] { "at-the-limit", "longest" },
                          _server.Received.Select(r => r.Body.Split('"')[7]).OrderBy(n => n).ToArray());
-            Assert.Equal(3, log.Count(m => m.Contains("dropped")));
+            Assert.Equal(4, log.Count(m => m.Contains("dropped")));
         }
 
         [Fact]
@@ -427,7 +497,7 @@ namespace StephensonSoftware.Trace.Tests
             var release = new ManualResetEventSlim(false);
             using (var slow = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(10))))
             {
-                var client = new TraceClient(slow.BaseUrl, "MyGame", key: "k");
+                var client = new TraceClient(slow.BaseUrl, "MyGame", "1.2.3", key: "k");
                 int flood = TraceClient.QueueCapacity * 3;
 
                 for (int i = 0; i < flood; i++)
@@ -464,7 +534,7 @@ namespace StephensonSoftware.Trace.Tests
             // back-to-back Report()+Close() pairs make that fraction visible.
             for (int i = 0; i < 30; i++)
             {
-                var client = new TraceClient(_server.BaseUrl, "MyCli", key: "k");
+                var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k");
                 client.Report("startup", tags: new Dictionary<string, string> { { "run", i.ToString() } });
                 client.Close();
             }
@@ -475,7 +545,7 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void Dispose_DrainsLikeClose()
         {
-            using (var client = new TraceClient(_server.BaseUrl, "MyCli", key: "k"))
+            using (var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k"))
             {
                 client.Report("startup");
             }
@@ -489,7 +559,7 @@ namespace StephensonSoftware.Trace.Tests
             var release = new ManualResetEventSlim(false);
             using (var slow = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(15))))
             {
-                var client = new TraceClient(slow.BaseUrl, "MyCli", key: "k");
+                var client = new TraceClient(slow.BaseUrl, "MyCli", "1.2.3", key: "k");
                 client.Report("startup");
                 client.Report("second");
 
@@ -506,7 +576,7 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void Close_IsIdempotentAndReportAfterCloseIsANoOp()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyCli", key: "k");
+            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k");
 
             client.Close();
             client.Close();

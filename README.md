@@ -15,7 +15,7 @@ speak the same wire format and make the same promises.
 ```csharp
 using StephensonSoftware.Trace;
 
-var trace = new TraceClient("https://trace.danielstephenson.dev", "my-game",
+var trace = new TraceClient("https://trace.danielstephenson.dev", "my-game", "1.4.0",
                             key: settings.UsageReportingKey,
                             enabled: settings.UsageReportingEnabled,
                             log: message => Debug.WriteLine(message)); // optional
@@ -31,12 +31,29 @@ else
     Console.WriteLine("Usage reporting is off (" + trace.DisabledReason + ").");
 }
 
-trace.Report("startup", tags: new Dictionary<string, string> { { "version", "1.4.0" } });
+trace.Report("startup");
 trace.Report("level-complete", 42.0);
 
 // on shutdown -- also before a short-lived program exits, so the event is sent
 trace.Dispose(); // same as trace.Close()
 ```
+
+## Every event carries the program's version
+
+The third constructor argument is the program's own version, and it is
+required: a null or blank one, or one over 255 characters after trimming,
+throws `ArgumentException`. Every event the client sends — `startup`,
+`level-complete`, anything else — carries it as the tag `version`, so every
+event can be tied to a release, not just `startup`. An event that passes its
+own `version` tag keeps it, and the dictionary passed to `Report` is never
+modified. There is no need to tag `startup` by hand any more. The `version` tag
+counts toward the server's 32-tag limit, so an event may carry 31 of its own.
+
+Before 0.2.0, the constructor took no version and only events tagged by hand
+carried one. Upgrading is one argument after the application name — for
+example `Application.version` in Unity, or the assembly's informational
+version elsewhere. Pass `key`, `enabled` and `log` by name, as above, so a
+key can never land in the version's place.
 
 ## What `Report` promises
 
@@ -87,14 +104,15 @@ distribution.
 ## The wire format
 
 `POST {baseUrl}/api/metrics` with `Authorization: Bearer <key>`,
-`User-Agent: trace-client/0.1.0 (<application>)` and a body of
+`User-Agent: trace-client/0.2.0 (<application>)` and a body of
 
 ```json
-{"application":"my-game","name":"startup","tags":{"version":"1.4.0"}}
+{"application":"my-game","name":"level-complete","value":42,"tags":{"version":"1.4.0"}}
 ```
 
-`value` and `tags` are omitted when not given; `value` is written with the
-invariant culture, so a German locale still sends `2.5`. The server assigns
+`value` is omitted when not given, and `tags` always holds at least
+`version`. `value` is written with the invariant culture, so a German locale
+still sends `2.5`. The server assigns
 the timestamp. A `201` is success; anything else is logged and dropped.
 
 ## Keys

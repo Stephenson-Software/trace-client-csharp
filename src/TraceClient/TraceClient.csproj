@@ -10,7 +10,7 @@
     <LangVersion>7.3</LangVersion>
     <AssemblyName>StephensonSoftware.Trace</AssemblyName>
     <RootNamespace>StephensonSoftware.Trace</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
