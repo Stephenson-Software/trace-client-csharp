@@ -137,7 +137,16 @@ namespace StephensonSoftware.Trace
             {
                 throw new ArgumentException("version is longer than " + MaxLength + " characters", "version");
             }
-            _endpoint = new Uri(baseUrl.Trim().TrimEnd('/') + "/api/metrics");
+            try
+            {
+                _endpoint = new Uri(baseUrl.Trim().TrimEnd('/') + "/api/metrics");
+            }
+            catch (UriFormatException malformed)
+            {
+                // UriFormatException is a FormatException, not an ArgumentException;
+                // rethrow so a malformed baseUrl fails the way the docs promise.
+                throw new ArgumentException("baseUrl is not a valid URL", "baseUrl", malformed);
+            }
             _application = application.Trim();
             _version = version.Trim();
             _key = key == null ? "" : key.Trim();

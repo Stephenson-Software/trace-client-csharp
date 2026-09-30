@@ -275,6 +275,18 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Constructor_RejectsAMalformedBaseUrlWithAnArgumentException()
+        {
+            // Exactly ArgumentException, as documented -- not the UriFormatException
+            // underneath, which a caller catching ArgumentException would miss.
+            ArgumentException thrown = Assert.Throws<ArgumentException>(
+                () => new TraceClient("not a url", "MyGame", "1.2.3", key: "k"));
+
+            Assert.Equal("baseUrl", thrown.ParamName);
+            Assert.IsType<UriFormatException>(thrown.InnerException);
+        }
+
+        [Fact]
         public void Constructor_RejectsAMissingOrOverlongVersion()
         {
             Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "MyGame", null));
