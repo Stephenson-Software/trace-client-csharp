@@ -55,6 +55,60 @@ example `Application.version` in Unity, or the assembly's informational
 version elsewhere. Pass `key`, `enabled` and `log` by name, as above, so a
 key can never land in the version's place.
 
+## Every event carries a random installation ID
+
+Since 0.3.0, every event can also carry the tag `install`: a random ID for
+the installation, so the trace server can count **distinct installations**
+("active installs in the last 30 days") rather than raw events. This is the
+same idea as bStats' `serverUuid`, and it is said out loud here because it is
+the one thing the client sends that is the same from one event to the next.
+
+**What it is.** A `Guid.NewGuid()`. It is not derived from anything — not a
+hostname, an IP address, a MAC address, a player, an account or a path. It
+identifies no person and no address; all it can say is "these events came
+from the same installation". (The trace server still sees the IP address of
+every HTTP request, as every web server does.)
+
+**Where it lives.** Wherever the program decides — there is no hidden
+default location, and without one of the options below no ID is made up and
+nothing is written. The simplest way is a file the program chooses:
+
+```csharp
+var trace = new TraceClient(url, "my-game", "1.4.0",
+                            key: settings.UsageReportingKey,
+                            enabled: settings.UsageReportingEnabled,
+                            installIdFile: Path.Combine(settings.DataDirectory, "trace-install-id"));
+```
+
+The client reads the first line of that file that is 1–255 of
+`[A-Za-z0-9_.-]`; when the file is missing or holds no such line, it writes a
+new random ID there (creating parent directories). If the file cannot be read
+or written, a fresh ID is used in memory for that run only — the constructor
+still never throws for it. `TraceClient.InstallIdFromFile(path)` does the same
+on its own, but note that calling it directly reads and writes the file
+whatever the opt-outs say; passing `installIdFile:` lets the client do it only
+when reporting is on.
+
+A program that already keeps settings can store the ID there instead and pass
+it explicitly; `installId:` wins over `installIdFile:`:
+
+```csharp
+var trace = new TraceClient(url, "my-game", "1.4.0", key: key,
+                            installId: settings.UsageReportingInstallId); // null or blank: none sent
+```
+
+An explicit ID is trimmed; one over 255 characters throws `ArgumentException`,
+like an overlong version. An event that passes its own `install` tag keeps
+it, and `install` is never added past the server's 32-tag limit.
+`trace.InstallId` returns the ID in use (`null` when disabled or when there is
+none), so a program can print it.
+
+**Resetting it.** Delete the file (or the setting); the next start makes a new
+one. Or put your own value in it.
+
+**Opting out.** Every [opt-out](#turning-it-off) also stops the ID: a disabled
+client never generates one, never writes one, and sends nothing.
+
 ## What `Report` promises
 
 | Property | Meaning |
@@ -104,14 +158,15 @@ distribution.
 ## The wire format
 
 `POST {baseUrl}/api/metrics` with `Authorization: Bearer <key>`,
-`User-Agent: trace-client/0.2.0 (<application>)` and a body of
+`User-Agent: trace-client/0.3.0 (<application>)` and a body of
 
 ```json
-{"application":"my-game","name":"level-complete","value":42,"tags":{"version":"1.4.0"}}
+{"application":"my-game","name":"level-complete","value":42,"tags":{"version":"1.4.0","install":"0f8b6c1e-3a52-4c8e-9a0d-6e2f1b7c4d90"}}
 ```
 
 `value` is omitted when not given, and `tags` always holds at least
-`version`. `value` is written with the invariant culture, so a German locale
+`version`, plus `install` when the program gave the client an
+[installation ID](#every-event-carries-a-random-installation-id). `value` is written with the invariant culture, so a German locale
 still sends `2.5`. The server assigns
 the timestamp. A `201` is success; anything else is logged and dropped.
 
