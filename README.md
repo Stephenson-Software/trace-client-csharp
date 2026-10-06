@@ -24,7 +24,7 @@ if (trace.IsEnabled)
 {
     Console.WriteLine("Usage reporting is on: my-game sends its name and version to "
         + "https://trace.danielstephenson.dev. Turn it off in settings, or with TRACE_USAGE_REPORTING=off. "
-        + "Details: https://github.com/Stephenson-Software/trace#usage-reporting");
+        + "Details: https://danielstephenson.dev/usage-reporting");
 }
 else
 {
@@ -139,7 +139,7 @@ environment question on its own, for programs that want it before building a
 client. A program that runs on other people's machines should expose the
 `enabled` switch in its settings, and say — on startup or the first time it
 runs — that reporting is on, how to turn it off, and where the details are:
-<https://github.com/Stephenson-Software/trace#usage-reporting>.
+<https://danielstephenson.dev/usage-reporting>.
 
 ## Getting it
 
