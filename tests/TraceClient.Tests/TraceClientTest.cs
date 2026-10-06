@@ -454,6 +454,38 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Json_RejectsANameLongerThanTheLimitButNotOneAtIt()
+        {
+            string longest = new string('n', TraceClient.MaxLength);
+            string tooLong = new string('n', TraceClient.MaxLength + 1);
+
+            string problem = TraceClient.Json("App", tooLong, null, null, out string rejected);
+
+            Assert.Equal("name longer than " + TraceClient.MaxLength + " characters", problem);
+            Assert.Null(rejected);
+            Assert.Null(TraceClient.Json("App", longest, null, null, out string accepted));
+            Assert.Contains(longest, accepted);
+        }
+
+        [Fact]
+        public void Json_RejectsATagValueLongerThanTheLimitAndNamesItsKey()
+        {
+            // The reason names the key, not the value: the value is what ran
+            // away, and the key is what the program can find in its source.
+            string tooLongValue = new string('v', TraceClient.MaxLength + 1);
+            string longestValue = new string('v', TraceClient.MaxLength);
+
+            string problem = TraceClient.Json("App", "n", null,
+                new Dictionary<string, string> { { "level", tooLongValue } }, out string body);
+
+            Assert.Equal("tag level longer than " + TraceClient.MaxLength + " characters", problem);
+            Assert.Null(body);
+            Assert.Null(TraceClient.Json("App", "n", null,
+                new Dictionary<string, string> { { "level", longestValue } }, out string accepted));
+            Assert.Contains("\"level\":\"" + longestValue + "\"", accepted);
+        }
+
+        [Fact]
         public void Quote_EscapesCarriageReturnAndEveryOtherControlCharacter()
         {
             Assert.Equal("\"a\\rb\"", TraceClient.Quote("a\rb"));

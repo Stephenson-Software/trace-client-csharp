@@ -76,7 +76,8 @@ namespace StephensonSoftware.Trace
         /// <summary>The most tags the server accepts on one report.</summary>
         public const int MaxTags = 32;
 
-        /// <summary>The longest application, name, tag key or tag value the server accepts, in UTF-16 chars.</summary>
+        /// <summary>The longest application, name, tag key or tag value the server accepts, in UTF-16 chars.
+        /// The program's version and installation ID are tag values too, so the constructor rejects either past it.</summary>
         public const int MaxLength = 255;
 
         /// <summary>Environment variable that turns reporting off: <c>off</c>, <c>false</c>, <c>0</c>, <c>no</c>.</summary>
@@ -122,9 +123,10 @@ namespace StephensonSoftware.Trace
         /// <paramref name="version"/>, reporting to the trace server at
         /// <paramref name="baseUrl"/>. Throws <see cref="ArgumentException"/> only for a
         /// missing or malformed <paramref name="baseUrl"/>, a missing
-        /// <paramref name="application"/>, or a missing <paramref name="version"/> or
-        /// one longer than <see cref="MaxLength"/> characters -- programming errors,
-        /// not runtime ones.
+        /// <paramref name="application"/>, a missing <paramref name="version"/> or
+        /// one longer than <see cref="MaxLength"/> characters, or an
+        /// <paramref name="installId"/> longer than <see cref="MaxLength"/> characters --
+        /// programming errors, not runtime ones.
         /// </summary>
         /// <param name="baseUrl">The trace server, e.g. <c>https://trace.danielstephenson.dev</c>.</param>
         /// <param name="application">The program's name, exactly as its key was issued for.</param>
