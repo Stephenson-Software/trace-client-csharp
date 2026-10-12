@@ -138,6 +138,60 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_TreatsAnyStatusButExactly201AsAFailure()
+        {
+            // The wire format promises 201 is success; another 2xx is not.
+            using (var ok = new StubServer(status: () => 200))
+            {
+                var log = new ConcurrentQueue<string>();
+                var client = new TraceClient(ok.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+                client.Report("startup");
+                client.Close();
+
+                Assert.Single(ok.Received);
+                Assert.Contains(log, m => m.Contains("answered 200"));
+            }
+        }
+
+        [Fact]
+        public void Report_KeepsSendingAfterAFailedDelivery()
+        {
+            // One rejected report must not stop the sending thread: the first
+            // answer is a 500, every later one a 201.
+            int answered = 0;
+            using (var flaky = new StubServer(status: () => Interlocked.Increment(ref answered) == 1 ? 500 : 201))
+            {
+                var log = new ConcurrentQueue<string>();
+                var client = new TraceClient(flaky.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+                client.Report("first");
+                client.Report("second");
+                client.Report("third");
+                client.Close();
+
+                Assert.Equal(new[] { "first", "second", "third" },
+                             flaky.Received.Select(r => r.Body.Split('"')[7]).ToArray());
+                Assert.Single(log, m => m.Contains("answered 500"));
+            }
+        }
+
+        [Fact]
+        public void Constructor_TrimsTheBaseUrlApplicationAndKey()
+        {
+            var client = new TraceClient("  " + _server.BaseUrl + "/  ", " MyGame ", "1.2.3", key: " k-123 ");
+
+            client.Report("startup");
+            client.Close();
+
+            Received request = _server.Received.Single();
+            Assert.Equal("/api/metrics", request.Path);
+            Assert.Equal("Bearer k-123", request.Authorization);
+            Assert.Equal("trace-client/" + TraceClient.Version + " (MyGame)", request.UserAgent);
+            Assert.StartsWith("{\"application\":\"MyGame\",", request.Body);
+        }
+
+        [Fact]
         public void Report_NeverThrowsEvenWhenTheLoggerDoes()
         {
             int deadPort = StubServer.FreePort();
@@ -272,6 +326,19 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Throws<ArgumentException>(() => new TraceClient(" ", "MyGame", "1.2.3"));
             Assert.Throws<ArgumentException>(() => new TraceClient("http://x", null, "1.2.3"));
             Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "", "1.2.3"));
+        }
+
+        [Fact]
+        public void Constructor_NamesTheParameterItRejects()
+        {
+            // A programming error should point at the argument to fix.
+            Assert.Equal("baseUrl", Assert.Throws<ArgumentException>(() => new TraceClient(" ", "MyGame", "1.2.3")).ParamName);
+            Assert.Equal("application", Assert.Throws<ArgumentException>(() => new TraceClient("http://x", " ", "1.2.3")).ParamName);
+            Assert.Equal("version", Assert.Throws<ArgumentException>(() => new TraceClient("http://x", "MyGame", null)).ParamName);
+            Assert.Equal("version", Assert.Throws<ArgumentException>(
+                () => new TraceClient("http://x", "MyGame", new string('9', TraceClient.MaxLength + 1))).ParamName);
+            Assert.Equal("installId", Assert.Throws<ArgumentException>(
+                () => new TraceClient("http://x", "MyGame", "1.2.3", installId: new string('i', TraceClient.MaxLength + 1))).ParamName);
         }
 
         [Fact]
