@@ -71,8 +71,8 @@ namespace StephensonSoftware.Trace
         public const int QueueCapacity = 256;
 
         /// <summary>
-        /// Per-request timeout, and the total time <see cref="Close"/> waits for queued
-        /// reports before cancelling the in-flight request (which gets half a second more).
+        /// Per-request timeout, and the time <see cref="Close"/> waits for queued reports
+        /// before it cancels the in-flight request and waits up to half a second more.
         /// </summary>
         public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 

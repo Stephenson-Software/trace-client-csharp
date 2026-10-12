@@ -117,7 +117,7 @@ client never generates one, never writes one, and sends nothing.
 | **Never throws** | A server that is down, slow, or rejecting the key is a dropped report, not an exception in your program — nor is a logger callback that throws. Drops go to the optional `log` callback, otherwise nowhere. |
 | **Bounded** | At most 256 reports wait to be sent; past that, new ones are dropped. A trace server that is unreachable for a week costs a few kilobytes, not your memory. |
 | **Within the server's limits** | A report the server would reject for its size — more than 32 tags, or an application, name, tag key or tag value longer than 255 characters — is dropped (and logged) instead of sent. Null or blank tag keys and null tag values are skipped. |
-| **`Close()` / `Dispose()` drains** | Reports already queued get up to the client timeout (5 s total) to be sent before the thread stops, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout plus half a second, while the in-flight request is cancelled. |
+| **`Close()` / `Dispose()` drains** | Reports already queued get up to the client timeout (5 s total) to be sent before the thread stops, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout plus half a second: at the timeout the in-flight request is cancelled, and the sending thread gets half a second to stop. |
 
 Each request has a 5 s timeout.
 
