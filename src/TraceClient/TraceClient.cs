@@ -70,7 +70,10 @@ namespace StephensonSoftware.Trace
         /// <summary>How many reports may wait to be sent before new ones are dropped.</summary>
         public const int QueueCapacity = 256;
 
-        /// <summary>Per-request timeout, and the total time <see cref="Close"/> waits for queued reports.</summary>
+        /// <summary>
+        /// Per-request timeout, and the total time <see cref="Close"/> waits for queued
+        /// reports before cancelling the in-flight request (which gets half a second more).
+        /// </summary>
         public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
         /// <summary>The most tags the server accepts on one report.</summary>
@@ -403,8 +406,9 @@ namespace StephensonSoftware.Trace
         /// <see cref="Timeout"/> in total to be sent first. A program that reports
         /// and exits within milliseconds -- a CLI -- would otherwise lose its one
         /// event. The bound still holds: an unreachable server delays exit by at
-        /// most the timeout, never a hang; whatever has not been sent by then is
-        /// dropped. Safe to call more than once, and on a disabled client.
+        /// most the timeout plus half a second to cancel the in-flight request,
+        /// never a hang; whatever has not been sent by then is dropped. Safe to
+        /// call more than once, and on a disabled client.
         /// </summary>
         public void Close()
         {
