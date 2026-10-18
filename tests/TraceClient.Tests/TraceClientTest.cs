@@ -78,6 +78,38 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_SendsNonAsciiNameAndTagsAsUtf8Intact()
+        {
+            // Quote writes everything above U+001F as is, so accents, CJK and a
+            // character outside the BMP (a surrogate pair in UTF-16) must survive
+            // the encoding to the wire, on .NET Framework as well as modern .NET.
+            string name = "niveau-terminé";
+            string world = "東京 🎮";
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+
+            client.Report(name, tags: new Dictionary<string, string> { { "monde", world } });
+            client.Close();
+
+            Received request = _server.Received.Single();
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"" + name + "\","
+                         + "\"tags\":{\"monde\":\"" + world + "\",\"version\":\"1.2.3\"}}", request.Body);
+            Assert.Contains("charset=utf-8", request.ContentType);
+        }
+
+        [Fact]
+        public void Probe_NonAsciiApplicationReachesTheServer()
+        {
+            // TEMPORARY probe: the application goes into the User-Agent header.
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "Jeu-été", "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report("startup");
+            client.Close();
+
+            Assert.True(_server.Received.Count == 1, "received " + _server.Received.Count + "; log: " + string.Join(" | ", log));
+        }
+
+        [Fact]
         public void UserAgent_NamesTheClientVersion()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
@@ -550,6 +582,22 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Null(TraceClient.Json("App", "n", null,
                 new Dictionary<string, string> { { "level", longestValue } }, out string accepted));
             Assert.Contains("\"level\":\"" + longestValue + "\"", accepted);
+        }
+
+        [Fact]
+        public void Json_MeasuresTheLengthLimitInUtf16CharsSoASurrogatePairCountsTwice()
+        {
+            // MaxLength is documented in UTF-16 chars, not code points: a
+            // character outside the BMP uses two of the 255.
+            string pair = "🎮";
+            string atTheLimit = string.Concat(Enumerable.Repeat(pair, 127)) + "a";      // 255 chars, 128 code points
+            string pastTheLimit = string.Concat(Enumerable.Repeat(pair, 128));          // 256 chars, 128 code points
+
+            Assert.Null(TraceClient.Json("App", atTheLimit, null, null, out string accepted));
+            Assert.Contains(atTheLimit, accepted);
+            Assert.Equal("name longer than " + TraceClient.MaxLength + " characters",
+                         TraceClient.Json("App", pastTheLimit, null, null, out string rejected));
+            Assert.Null(rejected);
         }
 
         [Fact]
