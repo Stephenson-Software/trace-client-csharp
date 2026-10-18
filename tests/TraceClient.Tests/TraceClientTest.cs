@@ -83,8 +83,8 @@ namespace StephensonSoftware.Trace.Tests
             // Quote writes everything above U+001F as is, so accents, CJK and a
             // character outside the BMP (a surrogate pair in UTF-16) must survive
             // the encoding to the wire, on .NET Framework as well as modern .NET.
-            string name = "niveau-terminé";
-            string world = "東京 🎮";
+            string name = "niveau-termin\u00e9";
+            string world = "\u6771\u4eac \uD83C\uDFAE";
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
 
             client.Report(name, tags: new Dictionary<string, string> { { "monde", world } });
@@ -94,21 +94,6 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Equal("{\"application\":\"MyGame\",\"name\":\"" + name + "\","
                          + "\"tags\":{\"monde\":\"" + world + "\",\"version\":\"1.2.3\"}}", request.Body);
             Assert.Contains("charset=utf-8", request.ContentType);
-        }
-
-        [Fact]
-        public void Probe_NonAsciiApplicationReachesTheServer()
-        {
-            // TEMPORARY probe: the application goes into the User-Agent header.
-            var log = new ConcurrentQueue<string>();
-            var client = new TraceClient(_server.BaseUrl, "Jeu-été", "1.2.3", key: "k", log: log.Enqueue);
-
-            client.Report("startup");
-            client.Close();
-
-#if NETFRAMEWORK
-            Assert.True(false, "net48 received " + _server.Received.Count + "; log: " + string.Join(" | ", log));
-#endif
         }
 
         [Fact]
@@ -591,7 +576,7 @@ namespace StephensonSoftware.Trace.Tests
         {
             // MaxLength is documented in UTF-16 chars, not code points: a
             // character outside the BMP uses two of the 255.
-            string pair = "🎮";
+            string pair = "\uD83C\uDFAE";
             string atTheLimit = string.Concat(Enumerable.Repeat(pair, 127)) + "a";      // 255 chars, 128 code points
             string pastTheLimit = string.Concat(Enumerable.Repeat(pair, 128));          // 256 chars, 128 code points
 
