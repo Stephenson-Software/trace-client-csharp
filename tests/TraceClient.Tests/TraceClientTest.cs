@@ -496,6 +496,18 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Json_WritesVeryLargeAndSmallValuesInExponentForm()
+        {
+            // "R" switches to exponent form at the extremes; JSON's grammar
+            // accepts a capital E, a sign and leading zeros in the exponent.
+            TraceClient.Json("App", "n", 1e-7, null, out string small);
+            TraceClient.Json("App", "n", 1e21, null, out string large);
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":1E-07}", small);
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":1E+21}", large);
+        }
+
+        [Fact]
         public void Json_OmitsTheTagsObjectWhenNoTagSurvives()
         {
             var onlyBadTags = new List<KeyValuePair<string, string>>
@@ -636,6 +648,28 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_DropsEveryEventOfAnApplicationNameLongerThanTheLimit()
+        {
+            // The constructor accepts an overlong application; it is the size
+            // check in Report that drops each event, logged, and nothing is sent.
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, new string('a', TraceClient.MaxLength + 1), "1.2.3",
+                                         key: "k", log: log.Enqueue);
+
+            client.Report("startup");
+            client.Report("command");
+            client.Close();
+
+            Assert.Empty(_server.Received);
+            Assert.Equal(new[]
+                         {
+                             "[trace] dropped startup: application longer than " + TraceClient.MaxLength + " characters",
+                             "[trace] dropped command: application longer than " + TraceClient.MaxLength + " characters",
+                         },
+                         log.ToArray());
+        }
+
+        [Fact]
         public void Queue_IsBoundedAndDropsRatherThanGrows()
         {
             // Hold the sending thread on the first report so everything behind it
@@ -669,6 +703,35 @@ namespace StephensonSoftware.Trace.Tests
                 Assert.True(delivered <= TraceClient.QueueCapacity + 1,
                     "delivered " + delivered + " of " + flood + "; at most the in-flight one plus a full queue may survive");
                 client.Close();
+            }
+        }
+
+        [Fact]
+        public void Queue_LogsEveryReportItDropsForBeingFull()
+        {
+            // Hold the sending thread so the queue fills. Whether it had already
+            // taken the first report decides whether 9 or 10 are dropped, but
+            // every report is either delivered or logged as dropped -- never lost silently.
+            var release = new ManualResetEventSlim(false);
+            using (var slow = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(10))))
+            {
+                var log = new ConcurrentQueue<string>();
+                var client = new TraceClient(slow.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+                int flood = TraceClient.QueueCapacity + 10;
+
+                for (int i = 0; i < flood; i++)
+                {
+                    client.Report("flood");
+                }
+                int dropped = log.Count;
+                release.Set();
+
+                Assert.InRange(dropped, 9, 10);
+                Assert.All(log, m => Assert.Equal("[trace] queue full, dropped flood", m));
+                Assert.True(slow.WaitFor(flood - dropped, TimeSpan.FromSeconds(20)),
+                    "delivered " + slow.Received.Count + "; expected " + (flood - dropped));
+                client.Close();
+                Assert.Equal(flood, slow.Received.Count + dropped);
             }
         }
 
