@@ -414,6 +414,24 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_ANullVersionTagDoesNotDisplaceTheProgramVersion()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            var tags = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("version", null),
+                new KeyValuePair<string, string>("name", "home"),
+            };
+
+            client.Report("command", tags: tags);
+            client.Close();
+
+            // A null value is no tag at all, so the program's own version is still sent.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"command\",\"tags\":{\"name\":\"home\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void Report_NeverModifiesTheCallersDictionary()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");

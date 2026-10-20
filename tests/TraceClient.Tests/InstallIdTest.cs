@@ -72,6 +72,18 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void InstallIdFromFile_KeepsALineExactlyAtTheLimit()
+        {
+            Directory.CreateDirectory(_directory);
+            string path = Path.Combine(_directory, "install-id");
+            string atTheLimit = new string('a', TraceClient.MaxLength);
+            File.WriteAllText(path, atTheLimit + "\n");
+
+            Assert.Equal(atTheLimit, TraceClient.InstallIdFromFile(path));
+            Assert.Equal(atTheLimit + "\n", File.ReadAllText(path)); // not replaced
+        }
+
+        [Fact]
         public void InstallIdFromFile_FallsBackToAnInMemoryIdWithoutThrowing()
         {
             // A path under a regular file can be neither read nor created, even as root.
@@ -234,6 +246,19 @@ namespace StephensonSoftware.Trace.Tests
             client.Close();
 
             Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"install\":\"own\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void Report_ANullInstallTagDoesNotDisplaceTheConfiguredId()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", installId: "configured");
+
+            client.Report("startup", tags: new[] { new KeyValuePair<string, string>("install", null) });
+            client.Close();
+
+            // A null value is no tag at all, so the configured ID is still sent.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"1.2.3\",\"install\":\"configured\"}}",
                          _server.Received.Single().Body);
         }
 
