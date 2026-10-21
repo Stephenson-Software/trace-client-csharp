@@ -570,6 +570,59 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Json_AcceptsATagKeyExactlyAtTheLimit()
+        {
+            string longestKey = new string('k', TraceClient.MaxLength);
+
+            Assert.Null(TraceClient.Json("App", "n", null,
+                new Dictionary<string, string> { { longestKey, "v" } }, out string body));
+
+            Assert.Contains("\"" + longestKey + "\":\"v\"", body);
+        }
+
+        [Fact]
+        public void Json_CountsOnlyTheTagsItSendsTowardTheTagLimit()
+        {
+            // Skipped tags cost nothing: a full set plus a null value and a blank
+            // key still goes, while one more real tag is one too many.
+            var full = Enumerable.Range(0, TraceClient.MaxTags)
+                .Select(i => new KeyValuePair<string, string>("t" + i, "v")).ToList();
+            var fullPlusSkipped = new List<KeyValuePair<string, string>>(full)
+            {
+                new KeyValuePair<string, string>("nullValue", null),
+                new KeyValuePair<string, string>(" ", "blankKey"),
+            };
+            var oneTooMany = new List<KeyValuePair<string, string>>(full)
+            {
+                new KeyValuePair<string, string>("extra", "v"),
+            };
+
+            Assert.Null(TraceClient.Json("App", "n", null, fullPlusSkipped, out string accepted));
+            string problem = TraceClient.Json("App", "n", null, oneTooMany, out string rejected);
+
+            Assert.Contains("\"t" + (TraceClient.MaxTags - 1) + "\":\"v\"}", accepted);
+            Assert.DoesNotContain("nullValue", accepted);
+            Assert.DoesNotContain("blankKey", accepted);
+            Assert.Equal("more than " + TraceClient.MaxTags + " tags", problem);
+            Assert.Null(rejected);
+        }
+
+        [Fact]
+        public void Json_SendsAnEmptyTagValueButSkipsANullOne()
+        {
+            // Only a null value is no tag at all; an empty string is a value.
+            var tags = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("empty", ""),
+                new KeyValuePair<string, string>("missing", null),
+            };
+
+            Assert.Null(TraceClient.Json("App", "n", null, tags, out string json));
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"tags\":{\"empty\":\"\"}}", json);
+        }
+
+        [Fact]
         public void Json_RejectsANameLongerThanTheLimitButNotOneAtIt()
         {
             string longest = new string('n', TraceClient.MaxLength);
