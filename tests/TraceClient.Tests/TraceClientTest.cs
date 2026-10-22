@@ -289,6 +289,7 @@ namespace StephensonSoftware.Trace.Tests
         [InlineData("true")]
         [InlineData("TRUE")]
         [InlineData("yes")]
+        [InlineData(" Yes ")]
         public void DoNotTrack_DisablesReportingForEveryAcceptedValue(string value)
         {
             _environment[TraceClient.EnvDoNotTrack] = value;
