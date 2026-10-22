@@ -204,6 +204,24 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void BlankExplicitId_DoesNotWinOverTheFile()
+        {
+            // Blank means none, so the file is still read or created.
+            string path = Path.Combine(_directory, "install-id");
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k",
+                                         installId: "   ", installIdFile: path);
+            string id = client.InstallId;
+
+            client.Report("startup");
+            client.Close();
+
+            Assert.True(IsGuid(id), id);
+            Assert.Equal(id + "\n", File.ReadAllText(path));
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"1.2.3\",\"install\":\"" + id + "\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void NoIdOrABlankOne_SendsNoInstallTag()
         {
             var none = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
