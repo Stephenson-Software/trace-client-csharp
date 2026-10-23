@@ -132,7 +132,9 @@ namespace StephensonSoftware.Trace
         /// programming errors, not runtime ones.
         /// </summary>
         /// <param name="baseUrl">The trace server, e.g. <c>https://trace.danielstephenson.dev</c>.</param>
-        /// <param name="application">The program's name, exactly as its key was issued for.</param>
+        /// <param name="application">The program's name, exactly as its key was issued for. Keep it
+        /// ASCII: it is also sent in the User-Agent header, which .NET 5+ refuses to send with
+        /// non-ASCII characters, so every report would be dropped there.</param>
         /// <param name="version">The program's own version, trimmed. Sent as the tag <c>version</c>
         /// on every event unless the event carries its own.</param>
         /// <param name="key">The program's write key. Without one the client is a no-op.</param>
