@@ -170,6 +170,14 @@ distribution.
 still sends `2.5`. The server assigns
 the timestamp. A `201` is success; anything else is logged and dropped.
 
+**Keep the application name ASCII.** It goes into the `User-Agent` header as
+well as the body, and on .NET 5 and later `HttpClient` refuses a header with
+non-ASCII characters. A name like `Jeu-été` therefore loses *every* report
+there, each one logged as `could not deliver ... Request headers must contain
+only ASCII characters.` (.NET Framework sends it.) Non-ASCII text in event
+names and tag values is fine; it travels only in the UTF-8 body. See
+[#12](https://github.com/Stephenson-Software/trace-client-csharp/issues/12).
+
 ## Keys
 
 A key identifies the program to the server and lets the operator revoke it;
