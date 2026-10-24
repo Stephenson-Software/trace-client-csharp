@@ -327,6 +327,52 @@ namespace StephensonSoftware.Trace.Tests
             Assert.True(TraceClient.EnvironmentDisables());
         }
 
+        [Theory]
+        [InlineData("on", "1")]
+        [InlineData("off", "0")]
+        [InlineData("off", "1")]
+        public void Environment_EitherVariableAloneTurnsReportingOffAndNeitherTurnsItBackOn(
+            string usageReporting, string doNotTrack)
+        {
+            // Two switches, either of which is enough: a value that is not an
+            // opt-out in one variable never cancels an opt-out in the other.
+            _environment[TraceClient.EnvUsageReporting] = usageReporting;
+            _environment[TraceClient.EnvDoNotTrack] = doNotTrack;
+
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+
+            Assert.True(TraceClient.EnvironmentDisables());
+            Assert.False(client.IsEnabled);
+            Assert.Equal("environment", client.DisabledReason);
+        }
+
+        [Fact]
+        public void DisabledClient_LogsNothingEvenForAReportItWouldHaveDropped()
+        {
+            // A disabled client does nothing: Report returns before the size
+            // checks, so even an overlong name is not mentioned to the logger.
+            var log = new ConcurrentQueue<string>();
+            var clients = new List<TraceClient>
+            {
+                new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", enabled: false, log: log.Enqueue),
+                new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", log: log.Enqueue),
+            };
+            _environment[TraceClient.EnvDoNotTrack] = "1";
+            clients.Add(new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue));
+            Assert.Equal(new[] { "config", "no key", "environment" }, clients.Select(c => c.DisabledReason).ToArray());
+
+            foreach (TraceClient client in clients)
+            {
+                client.Report(new string('x', TraceClient.MaxLength + 1));
+                client.Report("startup", tags: Enumerable.Range(0, TraceClient.MaxTags + 1)
+                    .ToDictionary(i => "t" + i, i => "v"));
+                client.Close();
+            }
+
+            Assert.Empty(log);
+            Assert.Empty(_server.Received);
+        }
+
         [Fact]
         public void Report_IgnoresABlankName()
         {
