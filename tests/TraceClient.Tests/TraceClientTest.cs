@@ -881,6 +881,85 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_DeliversEveryEventReportedFromSeveralThreadsAtOnce()
+        {
+            // Programs report from whichever thread did the work. Four threads at
+            // once stay well under QueueCapacity, so nothing may be dropped,
+            // torn or sent twice.
+            const int threads = 4;
+            const int each = 40;
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+            var start = new ManualResetEventSlim(false);
+            List<Thread> workers = Enumerable.Range(0, threads).Select(t => new Thread(() =>
+            {
+                start.Wait();
+                for (int i = 0; i < each; i++)
+                {
+                    client.Report("worker-" + t + "-" + i);
+                }
+            })).ToList();
+
+            workers.ForEach(w => w.Start());
+            start.Set();
+            workers.ForEach(w => w.Join());
+
+            Assert.True(_server.WaitFor(threads * each, TimeSpan.FromSeconds(20)),
+                "delivered " + _server.Received.Count + " of " + threads * each);
+            client.Close();
+            string[] expected = (from t in Enumerable.Range(0, threads)
+                                 from i in Enumerable.Range(0, each)
+                                 select "worker-" + t + "-" + i).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            Assert.Equal(expected, _server.Received.Select(r => r.Body.Split('"')[7])
+                                                   .OrderBy(n => n, StringComparer.Ordinal).ToArray());
+            Assert.Empty(log);
+        }
+
+        [Fact]
+        public void Report_NeverThrowsWhileAnotherThreadCloses()
+        {
+            // Close can land between Report's enabled check and its enqueue. That
+            // race is caught and logged as "could not queue", never thrown into
+            // the reporting thread; after Close, Report is a silent no-op.
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+            var stop = new ManualResetEventSlim(false);
+            Exception escaped = null;
+            var reporter = new Thread(() =>
+            {
+                try
+                {
+                    while (!stop.IsSet)
+                    {
+                        client.Report("busy");
+                        Thread.Sleep(5);
+                    }
+                }
+                catch (Exception failure)
+                {
+                    escaped = failure;
+                }
+            });
+
+            reporter.Start();
+            Assert.True(_server.WaitFor(1, TimeSpan.FromSeconds(10)), "reporting should be under way before Close");
+            client.Close();
+            Thread.Sleep(100); // the reporter keeps calling Report on the closed client
+            stop.Set();
+            reporter.Join();
+
+            Assert.Null(escaped);
+            Assert.False(client.IsEnabled);
+            // A slow first request can let the queue fill on a cold runner; that
+            // drop is logged too. Nothing else may be.
+            Assert.All(log, m => Assert.True(
+                m.StartsWith("[trace] could not queue busy: ", StringComparison.Ordinal)
+                || m == "[trace] queue full, dropped busy", m));
+            Assert.All(_server.Received, r => Assert.Equal(
+                "{\"application\":\"MyGame\",\"name\":\"busy\",\"tags\":{\"version\":\"1.2.3\"}}", r.Body));
+        }
+
+        [Fact]
         public void Close_StillReturnsWithinTheTimeoutWhenTheServerHangs()
         {
             var release = new ManualResetEventSlim(false);
