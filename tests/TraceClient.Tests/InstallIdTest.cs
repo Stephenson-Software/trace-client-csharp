@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -155,6 +156,45 @@ namespace StephensonSoftware.Trace.Tests
             Assert.True(IsGuid(client.InstallId), client.InstallId);
             Assert.Contains("\"install\":\"" + client.InstallId + "\"", _server.Received.Single().Body);
             Assert.Contains(log, m => m.Contains("in-memory install ID"));
+        }
+
+        [Fact]
+        public void Client_WithAnUnreadableFileLogsWhyAndLeavesItAlone()
+        {
+            // A directory where the file should be: unreadable as a file on every OS.
+            string path = Path.Combine(_directory, "install-id");
+            Directory.CreateDirectory(path);
+            var log = new ConcurrentQueue<string>();
+
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue,
+                                         installIdFile: path);
+            client.Report("startup");
+            client.Close();
+
+            Assert.True(IsGuid(client.InstallId), client.InstallId);
+            Assert.True(Directory.Exists(path));
+            // The prefix is doubled today (#21); this pins it until that is fixed.
+            Assert.Contains(log, m => m.StartsWith("[trace] [trace] using an in-memory install ID for this process: could not read " + path + ": "));
+            Assert.DoesNotContain(log, m => m.Contains("could not write"));
+            Assert.Contains("\"install\":\"" + client.InstallId + "\"", _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void Client_WhoseIdFileFailsStillConstructsWhenTheLoggerThrows()
+        {
+            string path = Path.Combine(_directory, "install-id");
+            Directory.CreateDirectory(path);
+            int calls = 0;
+
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k",
+                                         log: m => { Interlocked.Increment(ref calls); throw new InvalidOperationException("logger broke"); },
+                                         installIdFile: path);
+            client.Report("startup");
+            client.Close();
+
+            Assert.True(calls > 0); // the failure was offered to the logger
+            Assert.True(IsGuid(client.InstallId), client.InstallId);
+            Assert.Contains("\"install\":\"" + client.InstallId + "\"", _server.Received.Single().Body);
         }
 
         [Fact]

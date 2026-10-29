@@ -370,7 +370,9 @@ namespace StephensonSoftware.Trace
         /// Reports that <paramref name="name"/> happened, with an optional numeric
         /// value and optional string tags. Returns immediately and never throws.
         /// The program's version is added as the tag <c>version</c> unless
-        /// <paramref name="tags"/> already has one; <paramref name="tags"/> itself is
+        /// <paramref name="tags"/> already has one, and so is <see cref="InstallId"/>, if
+        /// any, as the tag <c>install</c>, unless <paramref name="tags"/> has one or it
+        /// would pass <see cref="MaxTags"/>; <paramref name="tags"/> itself is
         /// never modified. A report the server would reject for its size -- more than
         /// <see cref="MaxTags"/> tags, or a string longer than <see cref="MaxLength"/> --
         /// is dropped here instead of being sent.
