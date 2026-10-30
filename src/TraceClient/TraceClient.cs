@@ -213,7 +213,8 @@ namespace StephensonSoftware.Trace
             }
             else if (!string.IsNullOrWhiteSpace(installIdFile))
             {
-                InstallId = ReadOrCreateInstallId(installIdFile, Log);
+                // The raw callback: Note adds the prefix, so Log here would add it twice.
+                InstallId = ReadOrCreateInstallId(installIdFile, _log);
             }
             _queue = new BlockingCollection<string>(new ConcurrentQueue<string>(), QueueCapacity);
             _stop = new CancellationTokenSource();
