@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using Xunit;
 
@@ -82,6 +83,28 @@ namespace StephensonSoftware.Trace.Tests
 
             Assert.Equal(atTheLimit, TraceClient.InstallIdFromFile(path));
             Assert.Equal(atTheLimit + "\n", File.ReadAllText(path)); // not replaced
+        }
+
+        [Theory]
+        [InlineData("utf-8")]
+        [InlineData("utf-8-bom")]
+        [InlineData("utf-16")]
+        public void InstallIdFromFile_KeepsAHandEditedWindowsFileAsIs(string encoding)
+        {
+            // "Put your own value in it": a file saved by Notepad has CRLF line
+            // endings and may start with a byte order mark, or be UTF-16 outright.
+            Directory.CreateDirectory(_directory);
+            string path = Path.Combine(_directory, "install-id");
+            Encoding chosen = encoding == "utf-8" ? new UTF8Encoding(false)
+                : encoding == "utf-8-bom" ? new UTF8Encoding(true)
+                : Encoding.Unicode;
+            File.WriteAllText(path, "my-own-id \r\nsecond\r\n", chosen);
+            byte[] before = File.ReadAllBytes(path);
+
+            string id = TraceClient.InstallIdFromFile(path);
+
+            Assert.Equal("my-own-id", id);
+            Assert.Equal(before, File.ReadAllBytes(path)); // not replaced
         }
 
         [Fact]
