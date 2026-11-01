@@ -211,6 +211,19 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_PostsUnderAPathOnTheBaseUrlRatherThanReplacingIt()
+        {
+            // A trace server behind a reverse proxy at a sub-path: the endpoint is
+            // appended to the base URL, as the README's {baseUrl}/api/metrics says.
+            var client = new TraceClient(_server.BaseUrl + "/trace/", "MyGame", "1.2.3", key: "k");
+
+            client.Report("startup");
+            client.Close();
+
+            Assert.Equal("/trace/api/metrics", _server.Received.Single().Path);
+        }
+
+        [Fact]
         public void Report_NeverThrowsEvenWhenTheLoggerDoes()
         {
             int deadPort = StubServer.FreePort();
@@ -558,6 +571,17 @@ namespace StephensonSoftware.Trace.Tests
 
             Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":42}", whole);
             Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":-0.5}", negative);
+        }
+
+        [Fact]
+        public void Json_SendsAZeroValueRatherThanTreatingItAsAbsent()
+        {
+            // Only a null (or NaN/infinite) value is omitted; zero is a real measurement.
+            TraceClient.Json("App", "n", 0.0, null, out string zero);
+            TraceClient.Json("App", "n", null, null, out string absent);
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"value\":0}", zero);
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\"}", absent);
         }
 
         [Fact]
@@ -977,6 +1001,23 @@ namespace StephensonSoftware.Trace.Tests
                     "Close() took " + watch.ElapsedMilliseconds + " ms; draining must be bounded by the timeout");
                 release.Set();
             }
+        }
+
+        [Fact]
+        public void Close_ReturnsPromptlyWhenNothingIsQueued()
+        {
+            // The timeout bounds a drain; it is not a delay every program pays on exit.
+            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k");
+            client.Report("startup");
+            Assert.True(_server.WaitFor(1, TimeSpan.FromSeconds(5)), "the report should reach the server first");
+
+            var watch = Stopwatch.StartNew();
+            client.Close();
+            watch.Stop();
+
+            Assert.True(watch.ElapsedMilliseconds < TraceClient.Timeout.TotalMilliseconds / 2,
+                "Close() took " + watch.ElapsedMilliseconds + " ms with an empty queue; it should not wait out the timeout");
+            Assert.False(client.IsEnabled);
         }
 
         [Fact]
