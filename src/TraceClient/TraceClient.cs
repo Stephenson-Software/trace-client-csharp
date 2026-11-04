@@ -390,7 +390,7 @@ namespace StephensonSoftware.Trace
                 string problem = Json(_application, name, value, WithInstall(WithVersion(tags, _version), InstallId), out body);
                 if (problem != null)
                 {
-                    Log("dropped " + name + ": " + problem);
+                    Log("dropped " + ForLog(name) + ": " + problem);
                     return;
                 }
                 if (!_queue.TryAdd(body))
@@ -402,8 +402,15 @@ namespace StephensonSoftware.Trace
             {
                 // InvalidOperationException when Close() raced us, or anything
                 // else: a usage report must never be the reason a program stops.
-                Log("could not queue " + name + ": " + failure.Message);
+                Log("could not queue " + ForLog(name) + ": " + failure.Message);
             }
+        }
+
+        // A name past MaxLength is the very thing being dropped; its length is
+        // the program's to choose, so it does not reach the log uncut.
+        private static string ForLog(string name)
+        {
+            return name.Length > MaxLength ? name.Substring(0, MaxLength) + "..." : name;
         }
 
         /// <summary>
@@ -412,8 +419,8 @@ namespace StephensonSoftware.Trace
         /// and exits within milliseconds -- a CLI -- would otherwise lose its one
         /// event. The bound still holds: an unreachable server delays exit by at
         /// most the timeout plus half a second to cancel the in-flight request,
-        /// never a hang; whatever has not been sent by then is dropped. Safe to
-        /// call more than once, and on a disabled client.
+        /// never a hang; whatever has not been sent by then is dropped and logged.
+        /// Safe to call more than once, and on a disabled client.
         /// </summary>
         public void Close()
         {
@@ -453,7 +460,13 @@ namespace StephensonSoftware.Trace
             }
             catch (Exception)
             {
-                // OperationCanceledException from Close() giving up; nothing to report.
+                // OperationCanceledException from Close() giving up. The queue is
+                // never disposed, so Count cannot throw on this thread.
+                int left = _queue.Count;
+                if (left > 0)
+                {
+                    Log("close timed out, dropped " + left + " queued report(s)");
+                }
             }
             finally
             {

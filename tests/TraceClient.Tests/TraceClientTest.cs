@@ -812,6 +812,66 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_LogsAnOverlongNameCutAtTheLimit()
+        {
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report(new string('n', TraceClient.MaxLength * 4));
+            client.Close();
+
+            Assert.Equal("[trace] dropped " + new string('n', TraceClient.MaxLength) + "...: name longer than "
+                             + TraceClient.MaxLength + " characters",
+                         Assert.Single(log));
+            Assert.Empty(_server.Received);
+        }
+
+        [Fact]
+        public void Report_LogsANameAtTheLimitWhole()
+        {
+            // The limit is where the cut starts: a name the server would accept
+            // is dropped for some other reason, and reads in full in the log.
+            string longest = new string('n', TraceClient.MaxLength);
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+            var tooMany = Enumerable.Range(0, TraceClient.MaxTags + 1)
+                .Select(i => new KeyValuePair<string, string>("t" + i, "v")).ToList();
+
+            client.Report(longest, tags: tooMany);
+            client.Close();
+
+            Assert.Equal("[trace] dropped " + longest + ": more than " + TraceClient.MaxTags + " tags",
+                         Assert.Single(log));
+        }
+
+        [Fact]
+        public void Report_NeverThrowsWhenTheTagsDoAndLogsAnOverlongNameCut()
+        {
+            // The tags are read before the name's length is checked, so this is
+            // the one way an overlong name reaches "could not queue".
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report("startup", tags: ThrowingTags());
+            client.Report(new string('n', TraceClient.MaxLength + 1), tags: ThrowingTags());
+            client.Close();
+
+            Assert.Equal(new[]
+                         {
+                             "[trace] could not queue startup: tags failed",
+                             "[trace] could not queue " + new string('n', TraceClient.MaxLength) + "...: tags failed",
+                         },
+                         log.ToArray());
+            Assert.Empty(_server.Received);
+        }
+
+        private static IEnumerable<KeyValuePair<string, string>> ThrowingTags()
+        {
+            yield return new KeyValuePair<string, string>("ok", "v");
+            throw new InvalidOperationException("tags failed");
+        }
+
+        [Fact]
         public void Queue_IsBoundedAndDropsRatherThanGrows()
         {
             // Hold the sending thread on the first report so everything behind it
@@ -1001,6 +1061,48 @@ namespace StephensonSoftware.Trace.Tests
                     "Close() took " + watch.ElapsedMilliseconds + " ms; draining must be bounded by the timeout");
                 release.Set();
             }
+        }
+
+        [Fact]
+        public void Close_LogsHowManyReportsItGaveUpOn()
+        {
+            // One or two requests are in flight when Close gives up, and each is
+            // logged as undelivered. The rest never leave the queue, and they
+            // must be accounted for too: every report is delivered or logged.
+            const int reports = 6;
+            var release = new ManualResetEventSlim(false);
+            using (var slow = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(15))))
+            {
+                var log = new ConcurrentQueue<string>();
+                var client = new TraceClient(slow.BaseUrl, "MyCli", "1.2.3", key: "k", log: log.Enqueue);
+                for (int i = 0; i < reports; i++)
+                {
+                    client.Report("startup");
+                }
+
+                client.Close();
+                bool logged = SpinWait.SpinUntil(() => log.Any(m => m.Contains("close timed out")), TimeSpan.FromSeconds(5));
+                release.Set();
+
+                Assert.True(logged, "logged: " + string.Join(" | ", log));
+                int undelivered = log.Count(m => m.StartsWith("[trace] could not deliver ", StringComparison.Ordinal));
+                Assert.Equal("[trace] close timed out, dropped " + (reports - undelivered) + " queued report(s)",
+                             log.Single(m => m.Contains("close timed out")));
+            }
+        }
+
+        [Fact]
+        public void Close_LogsNoDropWhenEverythingWasDelivered()
+        {
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report("startup");
+            client.Report("command");
+            client.Close();
+
+            Assert.Equal(2, _server.Received.Count);
+            Assert.Empty(log);
         }
 
         [Fact]
