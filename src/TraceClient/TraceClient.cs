@@ -139,7 +139,9 @@ namespace StephensonSoftware.Trace
         /// on every event unless the event carries its own.</param>
         /// <param name="key">The program's write key. Without one the client is a no-op.</param>
         /// <param name="enabled">The program's own opt-out. <c>false</c> yields a client that reports nothing.</param>
-        /// <param name="log">Where dropped reports are mentioned. Optional; treat as debug-level.</param>
+        /// <param name="log">Where dropped reports are mentioned. Optional; treat as debug-level.
+        /// Called on the caller's thread or on the client's background thread, so it must be
+        /// quick and thread-safe. A failed delivery's message includes the report's JSON body.</param>
         /// <param name="installId">The installation's ID, sent as the tag <c>install</c> on every
         /// event. It should be random -- e.g. a <see cref="Guid.NewGuid"/> the program stores in its
         /// own settings -- and never derived from a person, account or address. Trimmed; <c>null</c>
@@ -376,7 +378,9 @@ namespace StephensonSoftware.Trace
         /// would pass <see cref="MaxTags"/>; <paramref name="tags"/> itself is
         /// never modified. A report the server would reject for its size -- more than
         /// <see cref="MaxTags"/> tags, or a string longer than <see cref="MaxLength"/> --
-        /// is dropped here instead of being sent.
+        /// is dropped here instead of being sent. A null or blank <paramref name="name"/>
+        /// sends nothing and logs nothing. A NaN or infinite <paramref name="value"/> is
+        /// left out of the event, which is still sent.
         /// </summary>
         public void Report(string name, double? value = null, IEnumerable<KeyValuePair<string, string>> tags = null)
         {
