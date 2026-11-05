@@ -121,6 +121,15 @@ client never generates one, never writes one, and sends nothing.
 
 Each request has a 5 s timeout.
 
+The `log` callback runs on whichever thread hit the problem: the caller's for
+a report dropped in `Report` and for an installation ID file that fails in the
+constructor, and the client's background thread for a failed delivery and for
+the count of reports `Close()` gave up on. Keep it quick and thread-safe, and
+do not touch main-thread-only APIs from it, such as a Unity object. A slow
+callback holds up `Report` on the path that logs. Messages for a failed delivery
+include the report's JSON body, which holds its tags and any installation ID;
+the client does not write the key into any message.
+
 ## Turning it off
 
 Reporting is **opt-out**, and the person running the program always has the
@@ -164,10 +173,12 @@ distribution.
 {"application":"my-game","name":"level-complete","value":42,"tags":{"version":"1.4.0","install":"0f8b6c1e-3a52-4c8e-9a0d-6e2f1b7c4d90"}}
 ```
 
-`value` is omitted when not given, and `tags` always holds at least
+`value` is omitted when not given, and when it is NaN or infinite (JSON has no
+such numbers; the event is still sent), and `tags` always holds at least
 `version`, plus `install` when the program gave the client an
 [installation ID](#every-event-carries-a-random-installation-id). `value` is written with the invariant culture, so a German locale
-still sends `2.5`. The server assigns
+still sends `2.5`. An event with a null or blank `name` is not sent at all, and
+nothing is logged for it. The server assigns
 the timestamp. A `201` is success; anything else is logged and dropped.
 
 **Keep the application name ASCII.** It goes into the `User-Agent` header as
