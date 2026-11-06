@@ -97,6 +97,52 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_SendsALoneSurrogateAsTheReplacementCharacter()
+        {
+            // A string cut through a surrogate pair is not valid UTF-16. Quote
+            // passes it along and the UTF-8 encoder substitutes U+FFFD, so the
+            // report is still delivered and nothing is logged.
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report("cut-\uD83C");
+            client.Close();
+
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"cut-\uFFFD\",\"tags\":{\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+            Assert.Empty(log);
+        }
+
+        [Fact]
+        public void Report_WithANonAsciiApplicationIsLostOnModernDotNetButSentOnNetFramework()
+        {
+            // Pins the README's "Keep the application name ASCII" and issue #12:
+            // the name also goes into the User-Agent header, which only .NET 5+
+            // refuses. Whatever #12 decides should change this test on purpose.
+            string application = "Jeu-\u00e9t\u00e9";
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, application, "1.2.3", key: "k", log: log.Enqueue);
+
+            client.Report("startup");
+            client.Report("command");
+            client.Close();
+
+#if NETFRAMEWORK
+            Assert.Equal(2, _server.Received.Count);
+            Assert.All(_server.Received, r => Assert.StartsWith("{\"application\":\"" + application + "\",", r.Body));
+            Assert.Empty(log);
+#else
+            Assert.Empty(_server.Received);
+            Assert.Equal(2, log.Count);
+            Assert.All(log, m =>
+            {
+                Assert.StartsWith("[trace] could not deliver ", m);
+                Assert.Contains("ASCII", m);
+            });
+#endif
+        }
+
+        [Fact]
         public void UserAgent_NamesTheClientVersion()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
@@ -221,6 +267,60 @@ namespace StephensonSoftware.Trace.Tests
             client.Close();
 
             Assert.Equal("/trace/api/metrics", _server.Received.Single().Path);
+        }
+
+        [Theory]
+        [InlineData("ftp://127.0.0.1")]
+        [InlineData("localhost:8080")] // no scheme written, so "localhost" is taken for one
+        public void Report_LogsAndDropsWhatItCannotPostToAWellFormedBaseUrl(string baseUrl)
+        {
+            // These parse, so the constructor accepts them, and a client built
+            // from one reports itself enabled. Each report is a logged drop.
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(baseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+
+            Assert.True(client.IsEnabled);
+            client.Report("startup"); // must not throw
+            client.Close();
+
+            Assert.StartsWith("[trace] could not deliver {\"application\":\"MyGame\",\"name\":\"startup\",",
+                              Assert.Single(log));
+        }
+
+        [Fact]
+        public void Report_GivesUpOnAHangingRequestAtTheTimeoutAndSendsTheNextReport()
+        {
+            // "Each request has a 5 s timeout": a server that never answers costs
+            // one report, not the sender. Nothing here calls Close, so it is the
+            // request's own timeout that frees the thread, not Close cancelling it.
+            var release = new ManualResetEventSlim(false);
+            int requests = 0;
+            using (var hangsOnce = new StubServer(beforeReply: () =>
+            {
+                if (Interlocked.Increment(ref requests) == 1)
+                {
+                    release.Wait(TimeSpan.FromSeconds(20));
+                }
+            }))
+            {
+                var log = new ConcurrentQueue<string>();
+                var client = new TraceClient(hangsOnce.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
+                var watch = Stopwatch.StartNew();
+
+                client.Report("hangs");
+                client.Report("next");
+                bool movedOn = SpinWait.SpinUntil(
+                    () => hangsOnce.Received.Any(r => r.Body.Contains("\"name\":\"next\"")), TimeSpan.FromSeconds(12));
+                watch.Stop();
+                release.Set();
+
+                Assert.True(movedOn, "logged: " + string.Join(" | ", log));
+                Assert.True(watch.Elapsed >= TimeSpan.FromSeconds(4),
+                    "the next report went after " + watch.ElapsedMilliseconds + " ms; it should wait out the timeout");
+                Assert.Single(log, m => m.StartsWith(
+                    "[trace] could not deliver {\"application\":\"MyGame\",\"name\":\"hangs\",", StringComparison.Ordinal));
+                client.Close();
+            }
         }
 
         [Fact]
@@ -389,13 +489,15 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void Report_IgnoresABlankName()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue);
 
             client.Report(null);
             client.Report("   ");
             client.Close();
 
             Assert.Empty(_server.Received);
+            Assert.Empty(log); // unlike every other drop, this one is not mentioned
         }
 
         [Fact]
@@ -516,6 +618,25 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Contains(new KeyValuePair<string, string>("version", "1.2.3"), merged);
             Assert.Equal(new[] { new KeyValuePair<string, string>("version", "1.2.3") },
                          TraceClient.WithVersion(null, "1.2.3"));
+        }
+
+        [Fact]
+        public void Json_WritesARepeatedTagKeyOncePerPairAndCountsEach()
+        {
+            // Tags are a sequence of pairs, not a map, so a list can repeat a key.
+            // Nothing merges them: each pair is written and each counts as a tag.
+            var repeated = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("k", "first"),
+                new KeyValuePair<string, string>("k", "second"),
+            };
+            var tooMany = Enumerable.Repeat(new KeyValuePair<string, string>("k", "v"), TraceClient.MaxTags + 1);
+
+            Assert.Null(TraceClient.Json("App", "n", null, repeated, out string json));
+
+            Assert.Equal("{\"application\":\"App\",\"name\":\"n\",\"tags\":{\"k\":\"first\",\"k\":\"second\"}}", json);
+            Assert.Equal("more than " + TraceClient.MaxTags + " tags",
+                         TraceClient.Json("App", "n", null, tooMany, out string _));
         }
 
         [Fact]
@@ -1120,6 +1241,20 @@ namespace StephensonSoftware.Trace.Tests
             Assert.True(watch.ElapsedMilliseconds < TraceClient.Timeout.TotalMilliseconds / 2,
                 "Close() took " + watch.ElapsedMilliseconds + " ms with an empty queue; it should not wait out the timeout");
             Assert.False(client.IsEnabled);
+        }
+
+        [Fact]
+        public void Close_ChangesIsEnabledButNotDisabledReasonOrInstallId()
+        {
+            // Both are "decided once, in the constructor": a closed client is not
+            // a disabled one, so a program cannot mistake Close for an opt-out.
+            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k", installId: "configured");
+
+            client.Close();
+
+            Assert.False(client.IsEnabled);
+            Assert.Null(client.DisabledReason);
+            Assert.Equal("configured", client.InstallId);
         }
 
         [Fact]
