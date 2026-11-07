@@ -131,7 +131,9 @@ namespace StephensonSoftware.Trace
         /// <paramref name="installId"/> longer than <see cref="MaxLength"/> characters --
         /// programming errors, not runtime ones.
         /// </summary>
-        /// <param name="baseUrl">The trace server, e.g. <c>https://trace.danielstephenson.dev</c>.</param>
+        /// <param name="baseUrl">The trace server, e.g. <c>https://trace.danielstephenson.dev</c>. Only
+        /// a URL that does not parse is rejected: <c>ftp://host</c>, or <c>localhost:8080</c> with its
+        /// scheme left off, makes a client whose every report is a logged drop.</param>
         /// <param name="application">The program's name, exactly as its key was issued for. Keep it
         /// ASCII: it is also sent in the User-Agent header, which .NET 5+ refuses to send with
         /// non-ASCII characters, so every report would be dropped there.</param>
@@ -139,14 +141,16 @@ namespace StephensonSoftware.Trace
         /// on every event unless the event carries its own.</param>
         /// <param name="key">The program's write key. Without one the client is a no-op.</param>
         /// <param name="enabled">The program's own opt-out. <c>false</c> yields a client that reports nothing.</param>
-        /// <param name="log">Where dropped reports are mentioned. Optional; treat as debug-level.
+        /// <param name="log">Where dropped reports and installation ID file failures are mentioned.
+        /// Optional; treat as debug-level.
         /// Called on the caller's thread or on the client's background thread, so it must be
         /// quick and thread-safe. A failed delivery's message includes the report's JSON body.</param>
         /// <param name="installId">The installation's ID, sent as the tag <c>install</c> on every
         /// event. It should be random -- e.g. a <see cref="Guid.NewGuid"/> the program stores in its
         /// own settings -- and never derived from a person, account or address. Trimmed; <c>null</c>
-        /// or blank means none. Longer than <see cref="MaxLength"/> characters throws
-        /// <see cref="ArgumentException"/>. Wins over <paramref name="installIdFile"/>.</param>
+        /// or blank means none was given, which leaves <paramref name="installIdFile"/> in charge.
+        /// Longer than <see cref="MaxLength"/> characters throws <see cref="ArgumentException"/>.
+        /// Any other value wins over <paramref name="installIdFile"/>.</param>
         /// <param name="installIdFile">A file, chosen by the program, that holds the installation's
         /// ID; read or created with <see cref="InstallIdFromFile"/>, but only when the client is
         /// enabled, so a disabled client never writes it. Optional; there is no default location.</param>
@@ -235,7 +239,9 @@ namespace StephensonSoftware.Trace
         /// Why <see cref="Report"/> sends nothing: <c>null</c> when enabled, otherwise
         /// <see cref="ReasonEnvironment"/>, <see cref="ReasonConfig"/> or
         /// <see cref="ReasonNoKey"/>, verbatim, so a program can print
-        /// <c>"Usage reporting is off (" + reason + ")."</c>. Decided once, in the constructor.
+        /// <c>"Usage reporting is off (" + reason + ")."</c>. Decided once, in the constructor:
+        /// <see cref="Close"/> does not change it, so a closed client that was enabled still
+        /// says <c>null</c>. <see cref="IsEnabled"/> answers whether reports are going out.
         /// </summary>
         public string DisabledReason { get; private set; }
 
@@ -333,9 +339,9 @@ namespace StephensonSoftware.Trace
 
         /// <summary>
         /// Whether the environment asks for usage reporting to be off, via
-        /// <c>TRACE_USAGE_REPORTING=off</c> or <c>DO_NOT_TRACK=1</c>. Only the listed
-        /// values count; anything else (including empty) leaves the program's
-        /// own setting in charge.
+        /// <see cref="EnvUsageReporting"/> or <see cref="EnvDoNotTrack"/> set to one of
+        /// the values listed there, case-insensitive. Anything else (including empty), or
+        /// an environment that cannot be read, leaves the program's own setting in charge.
         /// </summary>
         public static bool EnvironmentDisables()
         {
@@ -379,8 +385,9 @@ namespace StephensonSoftware.Trace
         /// never modified. A report the server would reject for its size -- more than
         /// <see cref="MaxTags"/> tags, or a string longer than <see cref="MaxLength"/> --
         /// is dropped here instead of being sent. A null or blank <paramref name="name"/>
-        /// sends nothing and logs nothing. A NaN or infinite <paramref name="value"/> is
-        /// left out of the event, which is still sent.
+        /// sends nothing and logs nothing, and so does any report on a disabled client or
+        /// after <see cref="Close"/>. A NaN or infinite <paramref name="value"/> is left
+        /// out of the event, which is still sent.
         /// </summary>
         public void Report(string name, double? value = null, IEnumerable<KeyValuePair<string, string>> tags = null)
         {

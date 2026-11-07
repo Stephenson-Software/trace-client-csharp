@@ -90,11 +90,12 @@ whatever the opt-outs say; passing `installIdFile:` lets the client do it only
 when reporting is on.
 
 A program that already keeps settings can store the ID there instead and pass
-it explicitly; `installId:` wins over `installIdFile:`:
+it explicitly. `installId:` wins over `installIdFile:`, unless it is null or
+blank; then the file is used, if one was given, and otherwise no ID is sent:
 
 ```csharp
 var trace = new TraceClient(url, "my-game", "1.4.0", key: key,
-                            installId: settings.UsageReportingInstallId); // null or blank: none sent
+                            installId: settings.UsageReportingInstallId);
 ```
 
 An explicit ID is trimmed; one over 255 characters throws `ArgumentException`,
@@ -115,11 +116,16 @@ client never generates one, never writes one, and sends nothing.
 |---|---|
 | **Returns immediately** | The HTTP call runs on one background thread the client owns. A game loop can report from its main thread and no frame waits on the network. |
 | **Never throws** | A server that is down, slow, or rejecting the key is a dropped report, not an exception in your program — nor is a logger callback that throws. Drops go to the optional `log` callback, otherwise nowhere. |
-| **Bounded** | At most 256 reports wait to be sent; past that, new ones are dropped. A trace server that is unreachable for a week costs a few kilobytes, not your memory. |
+| **Bounded** | At most 256 reports wait to be sent; past that, new ones are dropped. A trace server that is unreachable for a week costs those 256 reports, typically tens of kilobytes, not a queue that keeps growing. |
 | **Within the server's limits** | A report the server would reject for its size — more than 32 tags, or an application, name, tag key or tag value longer than 255 characters — is dropped (and logged) instead of sent. Null or blank tag keys and null tag values are skipped. |
 | **`Close()` / `Dispose()` drains** | Reports already queued get up to the client timeout (5 s total) to be sent before the thread stops, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout plus half a second: at the timeout the in-flight request is cancelled, and the sending thread gets half a second to stop. What is still queued then is dropped, and the `log` callback is told how many. |
 
 Each request has a 5 s timeout.
+
+A closed client stays closed: `IsEnabled` is `false`, and `Report` sends nothing
+and logs nothing. Closing is not an opt-out, so `DisabledReason` and `InstallId`
+keep the values they had. A program that was reporting still sees a `null`
+`DisabledReason`, and `IsEnabled` is the way to ask whether reports are going out.
 
 The `log` callback runs on whichever thread hit the problem: the caller's for
 a report dropped in `Report` and for an installation ID file that fails in the
