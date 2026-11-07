@@ -340,8 +340,8 @@ namespace StephensonSoftware.Trace
         /// <summary>
         /// Whether the environment asks for usage reporting to be off, via
         /// <see cref="EnvUsageReporting"/> or <see cref="EnvDoNotTrack"/> set to one of
-        /// the values listed there, in any case. Anything else (including empty), or an
-        /// environment that cannot be read, leaves the program's own setting in charge.
+        /// the values listed there, case-insensitive. Anything else (including empty), or
+        /// an environment that cannot be read, leaves the program's own setting in charge.
         /// </summary>
         public static bool EnvironmentDisables()
         {
