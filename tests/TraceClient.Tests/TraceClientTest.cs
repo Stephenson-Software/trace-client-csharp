@@ -1260,7 +1260,8 @@ namespace StephensonSoftware.Trace.Tests
         [Fact]
         public void Close_IsIdempotentAndReportAfterCloseIsANoOp()
         {
-            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k");
+            var logged = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyCli", "1.2.3", key: "k", log: logged.Enqueue);
 
             client.Close();
             client.Close();
@@ -1270,6 +1271,7 @@ namespace StephensonSoftware.Trace.Tests
             Assert.False(client.IsEnabled);
             Thread.Sleep(100);
             Assert.Empty(_server.Received);
+            Assert.Empty(logged);
         }
     }
 }
