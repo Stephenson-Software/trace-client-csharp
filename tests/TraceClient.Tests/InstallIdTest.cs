@@ -343,6 +343,33 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_AnEmptyInstallTagStillWinsOverTheConfiguredId()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", installId: "configured");
+
+            client.Report("startup", tags: new Dictionary<string, string> { { "install", "" } });
+            client.Close();
+
+            // Unlike a null value, an empty one is a tag: it is sent, and the configured ID is not added.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"install\":\"\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void Report_OnlyTheExactLowercaseInstallKeyCountsAsTheEventsOwn()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", installId: "configured");
+
+            client.Report("startup", tags: new Dictionary<string, string> { { "Install", "own" } });
+            client.Close();
+
+            // Keys are compared ordinally, so "Install" is an ordinary tag and the configured ID is still added.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\","
+                         + "\"tags\":{\"Install\":\"own\",\"version\":\"1.2.3\",\"install\":\"configured\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void Report_NeverAddsTheInstallTagPastTheTagLimit()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", installId: "configured");

@@ -594,6 +594,38 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_AnEmptyVersionTagStillWinsOverTheProgramVersion()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+
+            client.Report("startup", tags: new Dictionary<string, string> { { "version", "" } });
+            client.Close();
+
+            // Unlike a null value, an empty one is a tag: it is sent, and the program's version is not added.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void Report_OnlyTheExactLowercaseVersionKeyCountsAsTheEventsOwn()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            var tags = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("Version", "9.9.9"),
+                new KeyValuePair<string, string>(" version", "8.8.8"),
+            };
+
+            client.Report("startup", tags: tags);
+            client.Close();
+
+            // Keys are compared ordinally and untrimmed, so both are ordinary tags and the program's version is added.
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\","
+                         + "\"tags\":{\"Version\":\"9.9.9\",\" version\":\"8.8.8\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void Report_NeverModifiesTheCallersDictionary()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
