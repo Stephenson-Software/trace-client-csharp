@@ -1245,6 +1245,55 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Log_NeverContainsTheKeyOnAnyPathThatLogs()
+        {
+            // The README promises the key is written into no message, while a
+            // failed delivery's message carries the whole body. Drive every
+            // message the client can log with a sentinel key, and check each
+            // kind really was logged so the promise is not checked vacuously.
+            const string key = "sk-sentinel-4f2a9c";
+            var log = new ConcurrentQueue<string>();
+
+            // trace server answered: a rejecting server
+            using (var rejecting = new StubServer(status: () => 401))
+            {
+                var client = new TraceClient(rejecting.BaseUrl, "MyGame", "1.2.3", key: key, log: log.Enqueue);
+                client.Report("startup");
+                client.Close();
+            }
+
+            // could not deliver: nothing listening
+            var unreachable = new TraceClient("http://127.0.0.1:" + StubServer.FreePort(), "MyGame", "1.2.3",
+                                              key: key, log: log.Enqueue);
+            unreachable.Report("startup");
+            unreachable.Close();
+
+            // queue full, dropped (oversize), close timed out: a server that holds
+            // the first request past the timeout while the queue overflows
+            var release = new ManualResetEventSlim(false);
+            using (var hanging = new StubServer(beforeReply: () => release.Wait(TimeSpan.FromSeconds(15))))
+            {
+                var client = new TraceClient(hanging.BaseUrl, "MyGame", "1.2.3", key: key, log: log.Enqueue);
+                client.Report(new string('n', TraceClient.MaxLength + 1));
+                for (int i = 0; i < TraceClient.QueueCapacity + 5; i++)
+                {
+                    client.Report("flood");
+                }
+                client.Close();
+                SpinWait.SpinUntil(() => log.Any(m => m.Contains("close timed out")), TimeSpan.FromSeconds(5));
+                release.Set();
+            }
+
+            string all = string.Join(" | ", log);
+            foreach (string kind in new[] { "trace server answered 401", "could not deliver", "dropped nnn",
+                                            "queue full, dropped", "close timed out" })
+            {
+                Assert.True(log.Any(m => m.Contains(kind)), "no '" + kind + "' message; logged: " + all);
+            }
+            Assert.All(log, m => Assert.DoesNotContain(key, m));
+        }
+
+        [Fact]
         public void Close_LogsNoDropWhenEverythingWasDelivered()
         {
             var log = new ConcurrentQueue<string>();
