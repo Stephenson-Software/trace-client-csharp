@@ -73,6 +73,24 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Equal(fresh, TraceClient.InstallIdFromFile(junk));
         }
 
+        [Theory]
+        [InlineData("")]
+        [InlineData("   \n\t\n")]
+        public void InstallIdFromFile_ReplacesAnEmptyOrBlankFileWithAFreshId(string contents)
+        {
+            // A file that exists but holds nothing -- touched by hand, or cut off
+            // while being written -- is treated like a missing one.
+            Directory.CreateDirectory(_directory);
+            string path = Path.Combine(_directory, "install-id");
+            File.WriteAllText(path, contents);
+
+            string id = TraceClient.InstallIdFromFile(path);
+
+            Assert.True(IsGuid(id), id);
+            Assert.Equal(id + "\n", File.ReadAllText(path));
+            Assert.Equal(id, TraceClient.InstallIdFromFile(path));
+        }
+
         [Fact]
         public void InstallIdFromFile_KeepsALineExactlyAtTheLimit()
         {
