@@ -377,6 +377,18 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("\t\n")]
+        public void DisabledReason_TreatsABlankKeyAsNoKey(string key)
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: key);
+
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonNoKey, client.DisabledReason);
+        }
+
+        [Theory]
         [InlineData("off")]
         [InlineData("OFF")]
         [InlineData("false")]
