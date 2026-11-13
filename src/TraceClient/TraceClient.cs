@@ -229,7 +229,12 @@ namespace StephensonSoftware.Trace
             _thread.Start();
         }
 
-        /// <summary>A client that reports nothing. Useful as a default before settings are read.</summary>
+        /// <summary>
+        /// A client that reports nothing. Useful as a default before settings are read.
+        /// Its <see cref="DisabledReason"/> is <see cref="ReasonConfig"/>, or
+        /// <see cref="ReasonEnvironment"/> when the environment turns reporting off, since
+        /// the environment is checked first.
+        /// </summary>
         public static TraceClient Disabled()
         {
             return new TraceClient("http://disabled.invalid", "disabled", "disabled", enabled: false);

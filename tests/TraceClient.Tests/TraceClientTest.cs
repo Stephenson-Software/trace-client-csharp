@@ -376,6 +376,20 @@ namespace StephensonSoftware.Trace.Tests
             Assert.Equal("config", TraceClient.Disabled().DisabledReason);
         }
 
+        [Fact]
+        public void Disabled_SaysEnvironmentRatherThanConfigWhenTheEnvironmentOptsOut()
+        {
+            // Disabled() goes through the same constructor, and the environment
+            // is checked before enabled: false, so its reason is not always "config".
+            _environment[TraceClient.EnvDoNotTrack] = "1";
+
+            TraceClient client = TraceClient.Disabled();
+
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonEnvironment, client.DisabledReason);
+            Assert.Null(client.InstallId);
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("   ")]
