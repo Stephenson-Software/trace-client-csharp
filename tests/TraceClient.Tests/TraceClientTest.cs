@@ -930,6 +930,45 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Quote_WritesDeleteAndTheUnicodeLineSeparatorsAsIs()
+        {
+            // JSON only requires U+0000-U+001F to be escaped, so DEL and the
+            // line/paragraph separators are valid as they are and go out unescaped.
+            Assert.Equal("\"\u007f\u2028\u2029\"", TraceClient.Quote("\u007f\u2028\u2029"));
+        }
+
+        [Fact]
+        public void Json_EscapesTheApplicationNameAndTagKeysLikeTagValues()
+        {
+            // Every string in the body goes through Quote, not only tag values.
+            var tags = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("k\"1", "v"),
+                new KeyValuePair<string, string>("line\nkey", "v"),
+            };
+
+            Assert.Null(TraceClient.Json("My \"Game\"", "a\\b", null, tags, out string json));
+
+            Assert.Equal("{\"application\":\"My \\\"Game\\\"\",\"name\":\"a\\\\b\","
+                         + "\"tags\":{\"k\\\"1\":\"v\",\"line\\nkey\":\"v\"}}", json);
+        }
+
+        [Fact]
+        public void Report_SendsTheNameAndTagsUntrimmed()
+        {
+            // The constructor trims the application, version and key; Report
+            // sends an event's name, tag keys and tag values exactly as given.
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+
+            client.Report(" startup\t", tags: new Dictionary<string, string> { { " k ", " v " } });
+            client.Close();
+
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\" startup\\t\","
+                         + "\"tags\":{\" k \":\" v \",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void EnvironmentDisables_IsFalseWhenTheEnvironmentCannotBeRead()
         {
             // A sandbox that forbids reading the environment must not stop the
