@@ -348,6 +348,26 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Report_AnEventsOwnInstallTagPastTheLimitDropsTheEventRatherThanFallingBack()
+        {
+            var log = new ConcurrentQueue<string>();
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", log: log.Enqueue,
+                                         installId: "configured");
+
+            client.Report("startup", tags: new Dictionary<string, string> { { "install", new string('i', TraceClient.MaxLength + 1) } });
+            client.Report("command", tags: new Dictionary<string, string> { { "install", new string('i', TraceClient.MaxLength) } });
+            client.Close();
+
+            // The event's own tag wins even when the server would reject it, so the
+            // configured ID is not sent in its place: the whole event is dropped.
+            Assert.Equal("[trace] dropped startup: tag install longer than " + TraceClient.MaxLength + " characters",
+                         Assert.Single(log));
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"command\","
+                         + "\"tags\":{\"install\":\"" + new string('i', TraceClient.MaxLength) + "\",\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
         public void Report_ANullInstallTagDoesNotDisplaceTheConfiguredId()
         {
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k", installId: "configured");
