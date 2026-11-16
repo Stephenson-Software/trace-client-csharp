@@ -1385,9 +1385,12 @@ namespace StephensonSoftware.Trace.Tests
             // Record the thread with each message: a drop decided in Report is
             // logged on the caller's thread, a failed delivery on the client's
             // own background thread -- not the caller's, and not a pool thread.
-            var log = new ConcurrentQueue<KeyValuePair<Thread, string>>();
-            Action<string> record = m => log.Enqueue(new KeyValuePair<Thread, string>(Thread.CurrentThread, m));
-            Thread caller = Thread.CurrentThread;
+            // The thread is described while the callback runs: the sending thread
+            // has exited by the time the asserts run, and a dead thread's
+            // IsBackground throws.
+            var log = new ConcurrentQueue<LoggedOn>();
+            Action<string> record = m => log.Enqueue(new LoggedOn(Thread.CurrentThread, m));
+            int caller = Thread.CurrentThread.ManagedThreadId;
 
             using (var rejecting = new StubServer(status: () => 401))
             {
@@ -1401,18 +1404,36 @@ namespace StephensonSoftware.Trace.Tests
             unreachable.Report("startup");                               // could not deliver
             unreachable.Close();
 
-            string all = string.Join(" | ", log.Select(e => e.Value));
+            string all = string.Join(" | ", log.Select(e => e.Message));
             Assert.Equal(3, log.Count);
-            KeyValuePair<Thread, string> dropped = Assert.Single(log, e => e.Value.StartsWith("[trace] dropped nnn", StringComparison.Ordinal));
-            Assert.Same(caller, dropped.Key);
+            LoggedOn dropped = Assert.Single(log, e => e.Message.StartsWith("[trace] dropped nnn", StringComparison.Ordinal));
+            Assert.Equal(caller, dropped.ThreadId);
             foreach (string kind in new[] { "[trace] trace server answered 401 for ", "[trace] could not deliver " })
             {
-                KeyValuePair<Thread, string> delivery = Assert.Single(log, e => e.Value.StartsWith(kind, StringComparison.Ordinal));
-                Assert.NotSame(caller, delivery.Key);
-                Assert.True(delivery.Key.IsBackground, kind + "logged on a foreground thread; logged: " + all);
-                Assert.False(delivery.Key.IsThreadPoolThread, kind + "logged on a pool thread; logged: " + all);
-                Assert.Equal("trace-client/MyGame", delivery.Key.Name);
+                LoggedOn delivery = Assert.Single(log, e => e.Message.StartsWith(kind, StringComparison.Ordinal));
+                Assert.NotEqual(caller, delivery.ThreadId);
+                Assert.True(delivery.IsBackground, kind + "logged on a foreground thread; logged: " + all);
+                Assert.False(delivery.IsThreadPoolThread, kind + "logged on a pool thread; logged: " + all);
+                Assert.Equal("trace-client/MyGame", delivery.ThreadName);
             }
+        }
+
+        private sealed class LoggedOn
+        {
+            public LoggedOn(Thread thread, string message)
+            {
+                ThreadId = thread.ManagedThreadId;
+                ThreadName = thread.Name;
+                IsBackground = thread.IsBackground;
+                IsThreadPoolThread = thread.IsThreadPoolThread;
+                Message = message;
+            }
+
+            public int ThreadId { get; }
+            public string ThreadName { get; }
+            public bool IsBackground { get; }
+            public bool IsThreadPoolThread { get; }
+            public string Message { get; }
         }
 
         [Fact]
