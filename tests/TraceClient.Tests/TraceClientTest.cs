@@ -1378,6 +1378,44 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Log_RunsOnTheCallersThreadForADropInReportAndOnTheClientsThreadForADelivery()
+        {
+            // The README tells programs which thread the callback runs on, so a
+            // Unity program knows when it may touch a main-thread-only API.
+            // Record the thread with each message: a drop decided in Report is
+            // logged on the caller's thread, a failed delivery on the client's
+            // own background thread -- not the caller's, and not a pool thread.
+            var log = new ConcurrentQueue<KeyValuePair<Thread, string>>();
+            Action<string> record = m => log.Enqueue(new KeyValuePair<Thread, string>(Thread.CurrentThread, m));
+            Thread caller = Thread.CurrentThread;
+
+            using (var rejecting = new StubServer(status: () => 401))
+            {
+                var client = new TraceClient(rejecting.BaseUrl, "MyGame", "1.2.3", key: "k", log: record);
+                client.Report(new string('n', TraceClient.MaxLength + 1)); // dropped in Report
+                client.Report("startup");                                // answered 401
+                client.Close();
+            }
+            var unreachable = new TraceClient("http://127.0.0.1:" + StubServer.FreePort(), "MyGame", "1.2.3",
+                                              key: "k", log: record);
+            unreachable.Report("startup");                               // could not deliver
+            unreachable.Close();
+
+            string all = string.Join(" | ", log.Select(e => e.Value));
+            Assert.Equal(3, log.Count);
+            KeyValuePair<Thread, string> dropped = Assert.Single(log, e => e.Value.StartsWith("[trace] dropped nnn", StringComparison.Ordinal));
+            Assert.Same(caller, dropped.Key);
+            foreach (string kind in new[] { "[trace] trace server answered 401 for ", "[trace] could not deliver " })
+            {
+                KeyValuePair<Thread, string> delivery = Assert.Single(log, e => e.Value.StartsWith(kind, StringComparison.Ordinal));
+                Assert.NotSame(caller, delivery.Key);
+                Assert.True(delivery.Key.IsBackground, kind + "logged on a foreground thread; logged: " + all);
+                Assert.False(delivery.Key.IsThreadPoolThread, kind + "logged on a pool thread; logged: " + all);
+                Assert.Equal("trace-client/MyGame", delivery.Key.Name);
+            }
+        }
+
+        [Fact]
         public void Close_LogsNoDropWhenEverythingWasDelivered()
         {
             var log = new ConcurrentQueue<string>();
