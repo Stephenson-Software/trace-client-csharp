@@ -220,6 +220,22 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
+        public void Client_LogsAnIdFileFailureOnTheThreadThatConstructsIt()
+        {
+            // The README: an installation ID file that fails in the constructor is
+            // logged on the caller's thread, not the client's background thread.
+            string path = Path.Combine(_directory, "install-id");
+            Directory.CreateDirectory(path);
+            var threads = new ConcurrentQueue<Thread>();
+
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k",
+                                         log: m => threads.Enqueue(Thread.CurrentThread), installIdFile: path);
+            client.Close();
+
+            Assert.Same(Thread.CurrentThread, Assert.Single(threads));
+        }
+
+        [Fact]
         public void Client_WhoseIdFileFailsStillConstructsWhenTheLoggerThrows()
         {
             string path = Path.Combine(_directory, "install-id");
