@@ -409,7 +409,11 @@ namespace StephensonSoftware.Trace.Tests
         [InlineData("0")]
         [InlineData("no")]
         [InlineData(" No ")]
-        public void TraceUsageReporting_DisablesReportingForEveryAcceptedValue(string value)
+        [InlineData("disabled")]
+        [InlineData("of")]
+        [InlineData("\"on\"")]
+        [InlineData("2")]
+        public void TraceUsageReporting_DisablesReportingForAnythingButAClearOn(string value)
         {
             _environment[TraceClient.EnvUsageReporting] = value;
 
@@ -429,7 +433,11 @@ namespace StephensonSoftware.Trace.Tests
         [InlineData("TRUE")]
         [InlineData("yes")]
         [InlineData(" Yes ")]
-        public void DoNotTrack_DisablesReportingForEveryAcceptedValue(string value)
+        [InlineData("on")]
+        [InlineData("y")]
+        [InlineData("2")]
+        [InlineData("nope")]
+        public void DoNotTrack_DisablesReportingForAnythingButAClearNo(string value)
         {
             _environment[TraceClient.EnvDoNotTrack] = value;
 
@@ -442,11 +450,16 @@ namespace StephensonSoftware.Trace.Tests
         [Theory]
         [InlineData("TRACE_USAGE_REPORTING", "on")]
         [InlineData("TRACE_USAGE_REPORTING", "")]
+        [InlineData("TRACE_USAGE_REPORTING", "  ")]
         [InlineData("TRACE_USAGE_REPORTING", "1")]
+        [InlineData("TRACE_USAGE_REPORTING", " TRUE ")]
+        [InlineData("TRACE_USAGE_REPORTING", "Yes")]
         [InlineData("DO_NOT_TRACK", "0")]
         [InlineData("DO_NOT_TRACK", "")]
         [InlineData("DO_NOT_TRACK", "false")]
-        public void OtherEnvironmentValues_LeaveTheProgramSettingInCharge(string variable, string value)
+        [InlineData("DO_NOT_TRACK", " OFF ")]
+        [InlineData("DO_NOT_TRACK", "No")]
+        public void BlankOrClearlyOnEnvironmentValues_LeaveTheProgramSettingInCharge(string variable, string value)
         {
             _environment[variable] = value;
 
@@ -988,17 +1001,60 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Fact]
-        public void EnvironmentDisables_IsFalseWhenTheEnvironmentCannotBeRead()
+        public void EnvironmentDisables_IsTrueWhenTheEnvironmentCannotBeRead()
         {
             // A sandbox that forbids reading the environment must not stop the
-            // program from starting, nor silently decide for it: its own setting rules.
+            // program from starting. It may hold DO_NOT_TRACK=1, so it fails closed.
             TraceClient.EnvironmentSource = name => throw new System.Security.SecurityException("sandboxed");
 
-            Assert.False(TraceClient.EnvironmentDisables());
+            Assert.True(TraceClient.EnvironmentDisables());
             var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
-            Assert.True(client.IsEnabled);
-            Assert.Null(client.DisabledReason);
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonEnvironment, client.DisabledReason);
             client.Close();
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData("true")]
+        [InlineData("TRUE")]
+        [InlineData(" on ")]
+        [InlineData("Yes")]
+        [InlineData("1")]
+        public void AllowsReporting_IsTrueOnlyForAClearOn(object setting)
+        {
+            Assert.True(TraceClient.AllowsReporting(setting));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData(false)]
+        [InlineData("false")]
+        [InlineData("\"false\"")]
+        [InlineData("\"true\"")]
+        [InlineData("off")]
+        [InlineData("no")]
+        [InlineData("0")]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("ture")]
+        [InlineData("enabled")]
+        [InlineData(1)]
+        [InlineData(0)]
+        [InlineData(1.0)]
+        public void AllowsReporting_FailsClosedForEverythingElse(object setting)
+        {
+            Assert.False(TraceClient.AllowsReporting(setting));
+        }
+
+        [Fact]
+        public void AllowsReporting_FeedsTheConfigSwitch()
+        {
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k",
+                                         enabled: TraceClient.AllowsReporting("\"false\""));
+
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonConfig, client.DisabledReason);
         }
 
         [Fact]

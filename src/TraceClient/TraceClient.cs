@@ -1,5 +1,5 @@
 /*
- * trace-client 0.3.0 -- https://github.com/Stephenson-Software/trace-client-csharp
+ * trace-client 0.4.0 -- https://github.com/Stephenson-Software/trace-client-csharp
  *
  * One call to report that a program was used. Copy this file into a project as
  * is, or reference the project; either way there is nothing else to add.
@@ -38,11 +38,18 @@ namespace StephensonSoftware.Trace
     ///   accumulated.</item>
     /// </list>
     /// <para>Reporting is opt-out, and the person running the program has the
-    /// last word. The constructor checks, in this order, and the first match is
-    /// what <see cref="DisabledReason"/> says: the environment
-    /// (<c>TRACE_USAGE_REPORTING=off</c> or <c>DO_NOT_TRACK=1</c>) -- reason
-    /// <c>environment</c>; the program's own setting, <c>enabled: false</c> --
-    /// reason <c>config</c>; no key -- reason <c>no key</c>.</para>
+    /// last word. Every switch fails closed: a value that does not clearly mean
+    /// "on" -- a typo, a quoted <c>"false"</c>, an empty value -- turns reporting
+    /// off, and nothing in this client ever turns a switch back on. The
+    /// constructor checks, in this order, and the first match is what
+    /// <see cref="DisabledReason"/> says: the environment
+    /// (<c>TRACE_USAGE_REPORTING</c> set to anything but blank, <c>true</c>,
+    /// <c>on</c>, <c>yes</c> or <c>1</c>; or <c>DO_NOT_TRACK</c> set to anything
+    /// but blank, <c>0</c>, <c>false</c>, <c>off</c> or <c>no</c>; or an
+    /// environment that cannot be read) -- reason <c>environment</c>; the
+    /// program's own setting, <c>enabled: false</c> -- reason <c>config</c>,
+    /// read it with <see cref="AllowsReporting"/> so it fails closed too; no key
+    /// -- reason <c>no key</c>.</para>
     /// <para>Every event carries the program's own version as the tag
     /// <c>version</c> -- the third constructor argument, required, so a
     /// <c>command</c> event can be tied to a release as well as a
@@ -56,7 +63,7 @@ namespace StephensonSoftware.Trace
     /// <code>
     /// var trace = new TraceClient("https://trace.example.org", "my-game", ProgramVersion,
     ///                             key: settings.UsageReportingKey,
-    ///                             enabled: settings.UsageReportingEnabled);
+    ///                             enabled: TraceClient.AllowsReporting(settings.UsageReportingEnabled));
     /// trace.Report("startup");
     /// ...
     /// trace.Dispose(); // on shutdown: sends what is queued, bounded by the timeout
@@ -65,7 +72,7 @@ namespace StephensonSoftware.Trace
     public sealed class TraceClient : IDisposable
     {
         /// <summary>The client version, as sent in the User-Agent header.</summary>
-        public const string Version = "0.3.0";
+        public const string Version = "0.4.0";
 
         /// <summary>How many reports may wait to be sent before new ones are dropped.</summary>
         public const int QueueCapacity = 256;
@@ -83,10 +90,14 @@ namespace StephensonSoftware.Trace
         /// The program's version and installation ID are tag values too, so the constructor rejects either past it.</summary>
         public const int MaxLength = 255;
 
-        /// <summary>Environment variable that turns reporting off: <c>off</c>, <c>false</c>, <c>0</c>, <c>no</c>.</summary>
+        /// <summary>Environment variable that turns reporting off when set to anything but blank,
+        /// <c>true</c>, <c>on</c>, <c>yes</c> or <c>1</c> (case-insensitive): <c>off</c>, <c>false</c>,
+        /// <c>0</c>, <c>no</c>, a typo, ...</summary>
         public const string EnvUsageReporting = "TRACE_USAGE_REPORTING";
 
-        /// <summary>Environment variable that turns reporting off: <c>1</c>, <c>true</c>, <c>yes</c>. See https://consoledonottrack.com.</summary>
+        /// <summary>Environment variable that turns reporting off when set to anything but blank,
+        /// <c>0</c>, <c>false</c>, <c>off</c> or <c>no</c> (case-insensitive): <c>1</c>, <c>true</c>,
+        /// <c>yes</c>, ... See https://consoledonottrack.com.</summary>
         public const string EnvDoNotTrack = "DO_NOT_TRACK";
 
         /// <summary>Reason given when an environment variable turned reporting off.</summary>
@@ -140,7 +151,9 @@ namespace StephensonSoftware.Trace
         /// <param name="version">The program's own version, trimmed. Sent as the tag <c>version</c>
         /// on every event unless the event carries its own.</param>
         /// <param name="key">The program's write key. Without one the client is a no-op.</param>
-        /// <param name="enabled">The program's own opt-out. <c>false</c> yields a client that reports nothing.</param>
+        /// <param name="enabled">The program's own opt-out. <c>false</c> yields a client that reports nothing.
+        /// When the setting comes from a file or other loosely typed source, pass it through
+        /// <see cref="AllowsReporting"/> so that anything but a clear "on" turns reporting off.</param>
         /// <param name="log">Where dropped reports and installation ID file failures are mentioned.
         /// Optional; treat as debug-level.
         /// Called on the caller's thread or on the client's background thread, so it must be
@@ -343,41 +356,68 @@ namespace StephensonSoftware.Trace
         }
 
         /// <summary>
-        /// Whether the environment asks for usage reporting to be off, via
-        /// <see cref="EnvUsageReporting"/> or <see cref="EnvDoNotTrack"/> set to one of
-        /// the values listed there, case-insensitive. Anything else (including empty), or
-        /// an environment that cannot be read, leaves the program's own setting in charge.
+        /// Whether the environment asks for usage reporting to be off. Fails closed:
+        /// <see cref="EnvUsageReporting"/> set to anything but blank, <c>true</c>, <c>on</c>,
+        /// <c>yes</c> or <c>1</c>, or <see cref="EnvDoNotTrack"/> set to anything but blank,
+        /// <c>0</c>, <c>false</c>, <c>off</c> or <c>no</c> (case-insensitive, trimmed), turns
+        /// reporting off. An environment that cannot be read (e.g. a
+        /// <see cref="System.Security.SecurityException"/> in a sandbox) may hold
+        /// <c>DO_NOT_TRACK=1</c>, so it counts as opting out too. Never throws.
         /// </summary>
         public static bool EnvironmentDisables()
         {
             try
             {
-                return IsOff(EnvironmentSource(EnvUsageReporting)) || IsYes(EnvironmentSource(EnvDoNotTrack));
+                string usageReporting = EnvironmentSource(EnvUsageReporting);
+                if (!string.IsNullOrWhiteSpace(usageReporting) && !IsOn(usageReporting))
+                {
+                    return true;
+                }
+                string doNotTrack = EnvironmentSource(EnvDoNotTrack);
+                return !string.IsNullOrWhiteSpace(doNotTrack) && !IsNegative(doNotTrack);
             }
             catch (Exception)
             {
-                return false; // e.g. a SecurityException in a sandbox; the program's setting stays in charge
+                return true; // an environment that cannot be read may say DO_NOT_TRACK=1
             }
         }
 
-        private static bool IsOff(string value)
+        /// <summary>
+        /// Whether a program's own reporting setting, as read from its configuration,
+        /// allows reporting -- for the constructor's <c>enabled</c>. Fails closed: only
+        /// <c>true</c>, or a string reading <c>true</c>, <c>on</c>, <c>yes</c> or <c>1</c>
+        /// (any case, surrounding space ignored), allows it. Anything else turns reporting
+        /// off: <c>false</c>, a quoted <c>"false"</c>, <c>off</c>, <c>no</c>, a typo, a
+        /// number, or <c>null</c>. Never throws.
+        /// </summary>
+        /// <param name="setting">The raw value: a <see cref="bool"/>, a <see cref="string"/>,
+        /// <c>null</c> or anything else.</param>
+        public static bool AllowsReporting(object setting)
+        {
+            if (setting is bool)
+            {
+                return (bool)setting;
+            }
+            string text = setting as string;
+            return text != null && IsOn(text);
+        }
+
+        // true, on, yes or 1, ignoring case and surrounding space.
+        private static bool IsOn(string value)
         {
             if (value == null)
             {
                 return false;
             }
             string v = value.Trim().ToLowerInvariant();
-            return v == "off" || v == "false" || v == "0" || v == "no";
+            return v == "true" || v == "on" || v == "yes" || v == "1";
         }
 
-        private static bool IsYes(string value)
+        // false, off, no or 0, ignoring case and surrounding space.
+        private static bool IsNegative(string value)
         {
-            if (value == null)
-            {
-                return false;
-            }
             string v = value.Trim().ToLowerInvariant();
-            return v == "1" || v == "true" || v == "yes";
+            return v == "false" || v == "off" || v == "no" || v == "0";
         }
 
         /// <summary>
