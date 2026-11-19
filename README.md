@@ -17,7 +17,7 @@ using StephensonSoftware.Trace;
 
 var trace = new TraceClient("https://trace.danielstephenson.dev", "my-game", "1.4.0",
                             key: settings.UsageReportingKey,
-                            enabled: settings.UsageReportingEnabled,
+                            enabled: TraceClient.AllowsReporting(settings.UsageReportingEnabled),
                             log: message => Debug.WriteLine(message)); // optional
 
 if (trace.IsEnabled)
@@ -76,7 +76,7 @@ nothing is written. The simplest way is a file the program chooses:
 ```csharp
 var trace = new TraceClient(url, "my-game", "1.4.0",
                             key: settings.UsageReportingKey,
-                            enabled: settings.UsageReportingEnabled,
+                            enabled: TraceClient.AllowsReporting(settings.UsageReportingEnabled),
                             installIdFile: Path.Combine(settings.DataDirectory, "trace-install-id"));
 ```
 
@@ -139,13 +139,15 @@ the client does not write the key into any message.
 ## Turning it off
 
 Reporting is **opt-out**, and the person running the program always has the
-last word. The constructor checks these in order; the first that applies is
+last word. **Every switch fails closed:** a value that does not clearly mean
+"on" — a typo, a quoted `"false"`, an empty value — turns reporting off, and
+nothing in this client ever turns a switch back on. The constructor checks these in order; the first that applies is
 what `DisabledReason` returns, verbatim, so the program can log it:
 
 | Switch | `DisabledReason` |
 |---|---|
-| Environment, for every trace-reporting program at once: `TRACE_USAGE_REPORTING=off` (also `false`, `0`, `no`) or `DO_NOT_TRACK=1` (also `true`, `yes`; the [consoledonottrack.com](https://consoledonottrack.com) convention), case-insensitive. Always checked first; any other value leaves the program's setting in charge. | `environment` |
-| The program's own setting: `enabled: false`. | `config` |
+| Environment, for every trace-reporting program at once, case-insensitive and trimmed, always checked first: `TRACE_USAGE_REPORTING` set to anything but blank, `true`, `on`, `yes` or `1` (so `off`, `false`, `0`, `no`, `disabled`, a typo, …); or `DO_NOT_TRACK` set to anything but blank, `0`, `false`, `off` or `no` (so `1`, `true`, `yes`, …; the [consoledonottrack.com](https://consoledonottrack.com) convention). An environment that cannot be read (e.g. a `SecurityException` in a sandbox) counts as opting out. | `environment` |
+| The program's own setting: `enabled: false`. Read it with `TraceClient.AllowsReporting(value)`, which fails closed the same way: only `true`, or a string `true`/`on`/`yes`/`1` (any case, trimmed), allows reporting; `null`, `false`, a quoted `"false"`, a number or a typo turns it off. | `config` |
 | No key, or a blank one. | `no key` |
 
 `DisabledReason` is `null` when the client reports. A disabled client does
@@ -173,7 +175,7 @@ distribution.
 ## The wire format
 
 `POST {baseUrl}/api/metrics` with `Authorization: Bearer <key>`,
-`User-Agent: trace-client/0.3.0 (<application>)` and a body of
+`User-Agent: trace-client/0.4.0 (<application>)` and a body of
 
 ```json
 {"application":"my-game","name":"level-complete","value":42,"tags":{"version":"1.4.0","install":"0f8b6c1e-3a52-4c8e-9a0d-6e2f1b7c4d90"}}
