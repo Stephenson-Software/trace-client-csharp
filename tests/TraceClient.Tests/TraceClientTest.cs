@@ -1015,6 +1015,71 @@ namespace StephensonSoftware.Trace.Tests
         }
 
         [Theory]
+        [InlineData("TRACE_USAGE_REPORTING", "DO_NOT_TRACK", "0")]
+        [InlineData("DO_NOT_TRACK", "TRACE_USAGE_REPORTING", "on")]
+        public void EnvironmentDisables_IsTrueWhenEitherVariableAloneCannotBeRead(
+            string unreadable, string readable, string clearlyOn)
+        {
+            // The other variable saying "on" does not vouch for the one that
+            // could not be read: it may hold the opt-out, so the client fails closed.
+            TraceClient.EnvironmentSource = name =>
+            {
+                if (name == unreadable)
+                {
+                    throw new System.Security.SecurityException("sandboxed");
+                }
+                return name == readable ? clearlyOn : null;
+            };
+
+            Assert.True(TraceClient.EnvironmentDisables());
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            client.Report("startup");
+            client.Close();
+
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonEnvironment, client.DisabledReason);
+            Thread.Sleep(100);
+            Assert.Empty(_server.Received);
+        }
+
+        [Fact]
+        public void Environment_IsReadOnceInTheConstructorSoALaterOptOutDoesNotStopAClient()
+        {
+            // DisabledReason is "decided once, in the constructor": the environment
+            // is not consulted again per report. A program that wants a later change
+            // to count has to build a new client.
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            _environment[TraceClient.EnvDoNotTrack] = "1";
+
+            client.Report("startup");
+            client.Close();
+
+            Assert.True(TraceClient.EnvironmentDisables());
+            Assert.Null(client.DisabledReason);
+            Assert.Equal("{\"application\":\"MyGame\",\"name\":\"startup\",\"tags\":{\"version\":\"1.2.3\"}}",
+                         _server.Received.Single().Body);
+        }
+
+        [Fact]
+        public void Environment_IsReadOnceInTheConstructorSoALaterOptInDoesNotStartAClient()
+        {
+            // The other direction: nothing ever turns a switch back on, including
+            // the environment being cleared after a client was built disabled.
+            _environment[TraceClient.EnvUsageReporting] = "off";
+            var client = new TraceClient(_server.BaseUrl, "MyGame", "1.2.3", key: "k");
+            _environment.Clear();
+
+            client.Report("startup");
+            client.Close();
+
+            Assert.False(TraceClient.EnvironmentDisables());
+            Assert.False(client.IsEnabled);
+            Assert.Equal(TraceClient.ReasonEnvironment, client.DisabledReason);
+            Thread.Sleep(100);
+            Assert.Empty(_server.Received);
+        }
+
+        [Theory]
         [InlineData(true)]
         [InlineData("true")]
         [InlineData("TRUE")]
