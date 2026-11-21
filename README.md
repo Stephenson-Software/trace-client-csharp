@@ -216,6 +216,11 @@ project builds as netstandard2.0 with C# 7.3 so the vendoring floor stays
 honest. CI runs the suite on .NET 8 (Linux and Windows) and .NET Framework 4.8
 (Windows).
 
+The install-ID files in `tests/install-id-fixtures` are frozen once released:
+`InstallIdFixturesTest` checks the loader still treats each one as
+`expected.txt` records. Never edit or delete a fixture; a new case is a new
+fixture plus its `expected.txt` line.
+
 ## License
 
 MIT.
